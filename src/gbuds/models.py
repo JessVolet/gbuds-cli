@@ -50,6 +50,49 @@ class DeviceModelInfo:
             "supported_noise_modes": self.supported_noise_modes,
         }
 
+    def capabilities_dict(self) -> dict:
+        """Describe model declarations separately from Gbuds command coverage."""
+        model_identified = self.model_code != "Unknown"
+        legacy_protocol = self.model_code == "SM-R170"
+
+        def feature(device_support: Optional[bool]) -> dict:
+            if not model_identified or device_support is None:
+                support = "unknown"
+            else:
+                support = "supported" if device_support else "unsupported"
+
+            if legacy_protocol:
+                cli_support = "not_implemented"
+            elif support == "unsupported":
+                cli_support = "rejected"
+            elif support == "unknown":
+                cli_support = "unknown"
+            else:
+                cli_support = "implemented"
+            return {"device_support": support, "gbuds_support": cli_support}
+
+        features = {
+            "anc": feature(self.has_anc),
+            "ambient_sound": feature(self.has_ambient),
+            "adaptive_noise": feature(self.supports_adaptive),
+            "ambient_volume": {
+                **feature(self.has_ambient and self.max_ambient_volume > 0),
+                "max_level": self.max_ambient_volume if model_identified and self.has_ambient else None,
+            },
+            "blade_lights": feature(self.has_blade_lights),
+            "voice_detect": feature(self.has_voice_detect),
+            "equalizer": feature(None),
+            "find_earbuds": feature(None),
+            "touchpad": feature(None),
+        }
+        return {
+            "model_identified": model_identified,
+            "source": "Gbuds model metadata cross-checked against GalaxyBudsClient specifications",
+            "note": "Declared device support is not proof of physical testing. Unknown means the model metadata does not classify this feature.",
+            "noise_control_modes": self.supported_noise_modes if model_identified else None,
+            "features": features,
+        }
+
 
 # Map of Samsung DeviceId integer -> (Model Name, Model Code, Color, FW Prefix)
 DEVICE_ID_MAP: Dict[int, tuple[str, str, str, str]] = {

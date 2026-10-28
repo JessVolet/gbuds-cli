@@ -2,6 +2,13 @@
 
 All notable user-facing changes are documented here. This project follows the Keep a Changelog format; versions follow Semantic Versioning where practical.
 
+## [Unreleased]
+
+### Added
+
+- `gbuds capabilities` (also `gbuds specifications`) to report model-specific declared hardware features and Gbuds command coverage in text or JSON without opening an RFCOMM connection.
+- Uninstallation instructions for pipx and virtual-environment installs.
+
 ## [0.1.0b1] - 2026-10-28
 
 ### Added

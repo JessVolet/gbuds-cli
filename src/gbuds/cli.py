@@ -172,6 +172,14 @@ def main():
     # Info / device metadata
     subparsers.add_parser("info", aliases=["device", "device-info"], parents=[common_parser], help="Show hardware metadata, model, color, and firmware.")
 
+    # Model-specific capability report. This uses cached BlueZ metadata only.
+    subparsers.add_parser(
+        "capabilities",
+        aliases=["specifications"],
+        parents=[common_parser],
+        help="Show declared device features and Gbuds command coverage without connecting.",
+    )
+
     # Battery command
     subparsers.add_parser("battery", aliases=["status"], parents=[common_parser], help="Check battery percentage, wearing status, and state.")
 
@@ -294,6 +302,50 @@ def main():
     dev_name = str(bluez_props.get("Name", "Galaxy Buds")) if bluez_props else "Galaxy Buds"
     uuids = [str(u) for u in bluez_props.get("UUIDs", [])] if bluez_props else []
     model_info = identify_device_from_uuids(uuids, dev_name)
+
+    if args.command in ["capabilities", "specifications"]:
+        capabilities = model_info.capabilities_dict()
+        device = {
+            "name": dev_name,
+            "model": model_info.model_name,
+            "model_code": model_info.model_code,
+            "color": model_info.color or "Standard",
+        }
+        if args.json:
+            emit_json({
+                "success": True,
+                "device": device,
+                "capabilities": capabilities,
+            })
+        else:
+            print(f"=== Capabilities: {device['model']} ({device['model_code']}) ===")
+            print(f"Device Name:          {device['name']}")
+            print(f"Model Identified:     {'Yes' if capabilities['model_identified'] else 'No'}")
+            modes = capabilities["noise_control_modes"]
+            print(f"Noise Control Modes:  {', '.join(modes) if modes else 'Unknown'}")
+            print("\nFeature              Device Support   Gbuds Support")
+            print("-------------------  ---------------  -----------------")
+            labels = (
+                ("anc", "Active noise cancellation"),
+                ("ambient_sound", "Ambient Sound"),
+                ("adaptive_noise", "Adaptive noise"),
+                ("ambient_volume", "Ambient volume"),
+                ("blade_lights", "Blade Lights"),
+                ("voice_detect", "Voice Detect"),
+                ("equalizer", "Equalizer"),
+                ("find_earbuds", "Find earbuds"),
+                ("touchpad", "Touchpad controls"),
+            )
+            for key, label in labels:
+                details = capabilities["features"][key]
+                device_support = details["device_support"].replace("_", " ").title()
+                cli_support = details["gbuds_support"].replace("_", " ").title()
+                if key == "ambient_volume" and details["max_level"] is not None:
+                    device_support += f" (max {details['max_level']})"
+                print(f"{label:<20} {device_support:<15}  {cli_support}")
+            print(f"\nSource: {capabilities['source']}.")
+            print(capabilities["note"])
+        return
 
     if args.command in ["info", "device", "device-info"]:
         if not is_connected:

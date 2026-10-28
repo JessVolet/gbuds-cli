@@ -121,6 +121,59 @@ class TestBudsProtocol(unittest.TestCase):
         self.assertEqual(fe.max_ambient_volume, 2)
         self.assertFalse(live.has_ambient)
 
+    def test_capability_report_separates_hardware_support_from_cli_support(self):
+        buds3 = build_model_info("Galaxy Buds3", "SM-R530", "Silver", "R530")
+        capabilities = buds3.capabilities_dict()
+
+        self.assertEqual(capabilities["noise_control_modes"], ["off", "on", "ambient", "toggle"])
+        self.assertEqual(capabilities["features"]["ambient_volume"]["max_level"], 2)
+        self.assertEqual(capabilities["features"]["blade_lights"]["device_support"], "unsupported")
+        self.assertEqual(capabilities["features"]["blade_lights"]["gbuds_support"], "rejected")
+        self.assertEqual(capabilities["features"]["equalizer"]["device_support"], "unknown")
+
+    def test_capability_report_marks_unknown_model_and_legacy_protocol(self):
+        unknown = build_model_info("Galaxy Buds", "Unknown", "Standard", "Unknown")
+        unknown_report = unknown.capabilities_dict()
+        self.assertIsNone(unknown_report["noise_control_modes"])
+        self.assertEqual(unknown_report["features"]["anc"]["device_support"], "unknown")
+
+        legacy = build_model_info("Galaxy Buds", "SM-R170", "White/Black", "R170")
+        legacy_report = legacy.capabilities_dict()
+        self.assertEqual(legacy_report["features"]["ambient_sound"]["device_support"], "supported")
+        self.assertEqual(legacy_report["features"]["ambient_sound"]["gbuds_support"], "not_implemented")
+
+    def test_capabilities_command_outputs_json_without_connecting(self):
+        props = {"Connected": False, "Name": "Galaxy Buds3 test", "UUIDs": []}
+        output = StringIO()
+        with patch.object(sys, "argv", ["gbuds", "--json", "capabilities"]), \
+             patch("gbuds.cli.auto_detect_buds_mac", return_value="AA:BB:CC:DD:EE:FF"), \
+             patch("gbuds.cli.get_bluez_device_props", return_value=props), \
+             patch("gbuds.cli.BudsClient") as client_class, \
+             redirect_stdout(output):
+            main()
+
+        payload = json.loads(output.getvalue())
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["device"]["model_code"], "SM-R530")
+        self.assertEqual(payload["capabilities"]["features"]["adaptive_noise"]["device_support"], "unsupported")
+        client_class.assert_not_called()
+
+    def test_capabilities_command_prints_readable_report_without_connecting(self):
+        props = {"Connected": False, "Name": "Galaxy Buds FE test", "UUIDs": []}
+        output = StringIO()
+        with patch.object(sys, "argv", ["gbuds", "capabilities"]), \
+             patch("gbuds.cli.auto_detect_buds_mac", return_value="AA:BB:CC:DD:EE:FF"), \
+             patch("gbuds.cli.get_bluez_device_props", return_value=props), \
+             patch("gbuds.cli.BudsClient") as client_class, \
+             redirect_stdout(output):
+            main()
+
+        self.assertIn("Capabilities: Galaxy Buds FE (SM-R400N)", output.getvalue())
+        self.assertIn("Ambient volume", output.getvalue())
+        self.assertIn("Supported (max 2)", output.getvalue())
+        self.assertIn("Unknown means the model metadata does not classify this feature.", output.getvalue())
+        client_class.assert_not_called()
+
     def test_current_reference_models_are_recognized_without_claiming_physical_validation(self):
         buds3_fe = identify_device_from_uuids([], "Galaxy Buds3 FE de Jose")
         buds4 = identify_device_from_uuids([], "Galaxy Buds4 de Jose")

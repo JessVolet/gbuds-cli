@@ -25,6 +25,7 @@ Automatic discovery depends on BlueZ D-Bus Python bindings. Use `--mac` when tho
 
 | Command | Syntax | Notes |
 | --- | --- | --- |
+| `capabilities` | `gbuds capabilities` | Reports model-declared features and Gbuds command coverage from cached BlueZ metadata; does not connect to the earbuds. `specifications` is an alias. |
 | `info` | `gbuds info` | Shows model, firmware, transport, capabilities, and telemetry when available. |
 | `battery` | `gbuds battery` | Reads battery, placement, ANC, EQ, and touchpad status. `status` is an alias. |
 | `anc` | `gbuds anc [on\|off\|ambient\|adaptive\|toggle]` | Changes noise control. Default action is `toggle`; supported modes depend on the model. |
@@ -38,6 +39,8 @@ Automatic discovery depends on BlueZ D-Bus Python bindings. Use `--mac` when tho
 | `connect` / `disconnect` | `gbuds connect` / `gbuds disconnect` | Changes host-level Bluetooth connection state through BlueZ D-Bus. |
 
 Hardware-dependent commands are rejected when the detected model declares the feature unsupported. A capability declaration is not a guarantee of physical validation; consult the [support matrix](DEVICE_SUPPORT.md).
+
+`gbuds capabilities --json` returns the detected device, declared noise-control modes, per-feature device support, and Gbuds command coverage. A feature can be marked `unknown` when the model is unidentified or the model table does not classify it. This command uses cached Bluetooth metadata and does not require an active RFCOMM connection. Automatic model detection requires BlueZ D-Bus; otherwise, output may be unknown.
 
 ## JSON and scripts
 

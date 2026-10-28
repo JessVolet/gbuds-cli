@@ -10,6 +10,7 @@ Requirements and installation options are in the [installation guide](https://gi
 
 ```bash
 gbuds info
+gbuds capabilities
 gbuds battery
 gbuds anc toggle
 gbuds eq
@@ -29,6 +30,7 @@ gbuds --mac AA:BB:CC:DD:EE:FF battery
 ## What it supports
 
 - Battery, placement, ANC/noise mode, equalizer, and selected device metadata.
+- Model-specific capability reports that distinguish declared hardware support from Gbuds command coverage.
 - Model-gated controls for noise mode, ambient volume, voice detect, and Buds3 Pro Blade Lights.
 - Passive telemetry streaming with `watch`.
 - Direct Linux RFCOMM and BlueZ Profile transports.
