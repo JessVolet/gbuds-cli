@@ -11,10 +11,6 @@ The core package has **no mandatory third-party Python dependencies**. `pipx` is
 
 There is intentionally no `requirements.txt`: `pyproject.toml` is the source of truth for Python package requirements. Optional D-Bus/GLib integrations use distribution-provided system bindings described below.
 
-There is intentionally no `requirements.txt`: `pyproject.toml` is the source of truth for Python package requirements. Optional D-Bus/GLib integrations use distribution-provided system bindings described below.
-
-There is intentionally no `requirements.txt`: `pyproject.toml` is the source of truth for Python package requirements. Optional D-Bus/GLib integrations use distribution-provided system bindings described below.
-
 If `pipx` is not installed, use your distribution package manager. For example:
 
 ```bash
@@ -96,3 +92,19 @@ python -m pip install ./gbuds-<version>-py3-none-any.whl
 ```
 
 See the [release guide](RELEASE.md) for artifact generation and publication steps.
+
+## Uninstall
+
+If Gbuds was installed with `pipx`, remove its isolated environment and CLI entry point with:
+
+```bash
+pipx uninstall gbuds
+```
+
+If it was installed with `pip` in a virtual environment, activate that same environment and run:
+
+```bash
+python -m pip uninstall gbuds
+```
+
+To remove the virtual environment itself as well, deactivate it and delete its directory (for example, `.venv`). This does not unpair your earbuds or remove Bluetooth settings from BlueZ.

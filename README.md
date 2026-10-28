@@ -16,6 +16,8 @@ gbuds eq
 gbuds watch --json
 ```
 
+To uninstall, use `pipx uninstall gbuds` for a pipx install, or activate the virtual environment and run `python -m pip uninstall gbuds` for a pip install. See the [installation guide](https://github.com/JessVolet/gbuds-cli/blob/main/docs/INSTALLATION.md) for details.
+
 Start with `info`, `battery`, and `eq` (without a preset) for read-only inspection. Commands such as `anc`, `eq PRESET`, `ambient-volume`, `touchpad`, and `find` send control messages to the earbuds.
 
 When exactly one Galaxy Buds device is connected, it is selected automatically. If several are connected, select one explicitly:
