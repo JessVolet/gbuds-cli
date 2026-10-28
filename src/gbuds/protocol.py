@@ -24,16 +24,24 @@ SPP_UUID_LEGACY = "00001102-0000-1000-8000-00805f9b34fd"    # Buds 1st gen
 class MsgIds(IntEnum):
     STATUS_UPDATED = 96               # 0x60
     EXTENDED_STATUS_UPDATED = 97      # 0x61
+    PAIRING_MODE = 114                # 0x72
     NOISE_CONTROLS = 120              # 0x78
+    SET_DETECT_CONVERSATIONS = 122   # 0x7A
+    SET_DETECT_CONVERSATIONS_DURATION = 123
     SET_AMBIENT_MODE = 128            # 0x80 (Buds / Buds+)
+    AMBIENT_VOLUME = 132              # 0x84
     EQUALIZER = 134                   # 0x86
     MANAGER_INFO = 136                # 0x88
+    BUDS_LIGHTING_SYNC = 142          # 0x8E
     LOCK_TOUCHPAD = 144               # 0x90
     SET_TOUCHPAD_OPTION = 146         # 0x92
     SET_NOISE_REDUCTION = 152         # 0x98 (Buds Live)
-    PAIRING_MODE = 114                # 0x72
     FIND_MY_EARBUDS_START = 160       # 0xA0
     FIND_MY_EARBUDS_STOP = 161        # 0xA1
+    MUTE_EARBUD = 162                 # 0xA2
+    DEBUG_SERIAL_NUMBER = 41          # 0x29
+    VERSION_INFO_LONG = 104           # 0x68
+    CRADLE_SERIAL_NUMBER = 205        # 0xCD
 
 
 class MsgTypes(IntEnum):
@@ -46,6 +54,30 @@ class NoiseControlMode(IntEnum):
     NOISE_REDUCTION = 1  # ANC active
     AMBIENT_SOUND = 2    # Ambient Sound active
     ADAPTIVE = 3         # Adaptive (Buds 3 / Buds 3 Pro)
+
+
+class EqualizerPreset(IntEnum):
+    OFF = 0              # Normal / Off
+    BASS_BOOST = 1
+    SOFT = 2
+    DYNAMIC = 3
+    CLEAR = 4
+    TREBLE_BOOST = 5
+
+
+class BladeLightingMode(IntEnum):
+    OFF = 0
+    STEADY = 1
+    FADE = 2
+    BLINK = 3
+
+
+class PlacementState(IntEnum):
+    DISCONNECTED = 0
+    WEARING = 1
+    IDLE = 2
+    IN_CASE = 3
+    CLOSED_CASE = 4
 
 
 # CRC-16/CCITT lookup table (polynomial 0x1021, init 0x0000)
@@ -104,7 +136,13 @@ class BatteryStatus:
     right_charging: bool = False
     case_charging: bool = False
     is_coupled: bool = True
+    placement_left: Optional[PlacementState] = None
+    placement_right: Optional[PlacementState] = None
     noise_control_mode: Optional[NoiseControlMode] = None
+    equalizer_preset: Optional[EqualizerPreset] = None
+    ambient_volume: Optional[int] = None
+    voice_detect: Optional[bool] = None
+    blade_lights: Optional[BladeLightingMode] = None
     touchpad_locked: Optional[bool] = None
 
     def to_dict(self) -> dict:
@@ -116,7 +154,13 @@ class BatteryStatus:
             "right_charging": self.right_charging,
             "case_charging": self.case_charging,
             "is_coupled": self.is_coupled,
+            "placement_left": self.placement_left.name if self.placement_left else None,
+            "placement_right": self.placement_right.name if self.placement_right else None,
             "noise_control": self.noise_control_mode.name if self.noise_control_mode else None,
+            "equalizer": self.equalizer_preset.name if self.equalizer_preset else None,
+            "ambient_volume": self.ambient_volume,
+            "voice_detect": self.voice_detect,
+            "blade_lights": self.blade_lights.name if self.blade_lights else None,
             "touchpad_locked": self.touchpad_locked,
         }
 
@@ -201,23 +245,48 @@ def decode_battery_status(msg: SppMessage) -> Optional[BatteryStatus]:
         is_coupled = bool(p[4])
         bat_case = p[7] if len(p) > 7 and p[7] <= 100 else None
 
-        # Noise control mode & touchpad lock (if available at byte 10/12)
+        # Placement states (Byte 6: high nibble Left, low nibble Right)
+        pl_l = None
+        pl_r = None
+        try:
+            pl_l = PlacementState((p[6] & 0xF0) >> 4)
+        except ValueError:
+            pass
+        try:
+            pl_r = PlacementState(p[6] & 0x0F)
+        except ValueError:
+            pass
+
+        # Equalizer Mode (Byte 9 for >= Buds Live, Byte 11 for Buds+)
+        eq_preset = None
+        if len(p) > 9 and 0 <= p[9] <= 5:
+            try:
+                eq_preset = EqualizerPreset(p[9])
+            except ValueError:
+                pass
+
+        # Touchpad lock
         touchpad_locked = None
-        nc_mode = None
         if len(p) > 10:
             touchpad_locked = bool(p[10] & 0x80) if (p[10] & 0x80) else bool(p[10])
-        if len(p) > 12:
+
+        # Noise control mode (typically at byte 12 or byte 21)
+        nc_mode = None
+        if len(p) > 12 and p[12] <= 3:
             try:
                 nc_mode = NoiseControlMode(p[12])
             except ValueError:
-                nc_mode = None
+                pass
 
         return BatteryStatus(
             left=bat_l,
             right=bat_r,
             case=bat_case,
             is_coupled=is_coupled,
+            placement_left=pl_l,
+            placement_right=pl_r,
             noise_control_mode=nc_mode,
+            equalizer_preset=eq_preset,
             touchpad_locked=touchpad_locked,
         )
 
@@ -255,11 +324,39 @@ def encode_noise_control(mode: NoiseControlMode) -> bytes:
     return build_packet(MsgIds.NOISE_CONTROLS, bytes([mode.value]))
 
 
+def encode_equalizer(preset: EqualizerPreset) -> bytes:
+    """Builds packet for setting equalizer preset (MsgId 134 / 0x86)."""
+    return build_packet(MsgIds.EQUALIZER, bytes([preset.value]))
+
+
+def encode_blade_lights(mode: BladeLightingMode) -> bytes:
+    """Builds packet for setting stem LED blade lighting mode (MsgId 142 / 0x8E)."""
+    return build_packet(MsgIds.BUDS_LIGHTING_SYNC, bytes([mode.value]))
+
+
+def encode_find_earbuds(start: bool) -> bytes:
+    """Builds packet for starting or stopping find my earbuds ringing (MsgId 160 / 161)."""
+    msg_id = MsgIds.FIND_MY_EARBUDS_START if start else MsgIds.FIND_MY_EARBUDS_STOP
+    return build_packet(msg_id)
+
+
+def encode_mute_earbud(left_mute: bool, right_mute: bool) -> bytes:
+    """Builds packet for muting/unmuting individual earbuds during ring (MsgId 162)."""
+    return build_packet(MsgIds.MUTE_EARBUD, bytes([1 if left_mute else 0, 1 if right_mute else 0]))
+
+
+def encode_ambient_volume(level: int) -> bytes:
+    """Builds packet for setting ambient sound volume level (MsgId 132 / 0x84)."""
+    return build_packet(MsgIds.AMBIENT_VOLUME, bytes([max(0, min(level, 4))]))
+
+
+def encode_voice_detect(enable: bool) -> bytes:
+    """Builds packet for toggling conversation / voice detect auto-pause (MsgId 122 / 0x7A)."""
+    return build_packet(MsgIds.SET_DETECT_CONVERSATIONS, bytes([1 if enable else 0]))
+
+
 def encode_lock_touchpad(lock: bool) -> bytes:
     """Builds packet for locking/unlocking touchpad (MsgId 144 / 0x90)."""
-    # In modern Buds2/Buds3, AdvancedTouchLock uses 7 bytes:
-    # [not_lock_all, tap, double, triple, hold, double_call, hold_call]
-    # For full lock: [0, 0, 0, 0, 0, 0, 0]. For full unlock: [1, 1, 1, 1, 1, 1, 1]
     val = 0 if lock else 1
     advanced_payload = bytes([val] * 7)
     return build_packet(MsgIds.LOCK_TOUCHPAD, advanced_payload)

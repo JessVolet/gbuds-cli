@@ -2,24 +2,29 @@
 
 A lightweight, headless command-line interface and Python library for controlling Samsung Galaxy Buds on Linux systems without graphical dependencies.
 
-Designed for headless servers, automation scripts, and integration into Linux desktop status bars such as Waybar, Polybar, Eww, and DMS/QuickShell.
+Designed for headless environments, automation scripts, and integration into Linux desktop status bars such as Waybar, Polybar, Eww, and DMS/QuickShell.
 
 ---
 
 ## Overview
 
-`gbuds` communicates directly with Samsung Galaxy Buds over the Bluetooth Serial Port Profile (SPP) and RFCOMM protocol. It implements the binary packet framing, CRC16-CCITT checksum calculation, dynamic SDP service discovery, and message decoding required to inspect and control the earbuds natively on Linux.
+`gbuds` communicates directly with Samsung Galaxy Buds over the Bluetooth Serial Port Profile (SPP) and RFCOMM protocol. It implements binary packet framing, CRC16-CCITT checksum validation, dynamic SDP service discovery over L2CAP, and message decoding required to inspect and control the earbuds natively on Linux.
 
 ### Key Capabilities
 
-- Battery telemetry: Real-time battery levels for left earbud, right earbud, and charging case, including charging states.
-- Noise control: Switch between Active Noise Cancellation (ANC), Ambient Sound, Normal (Off), and Adaptive mode.
-- Touchpad control: Lock or unlock touch gesture controls on both earbuds.
-- Hardware inspection: Auto-detection of device model (e.g., SM-R530, SM-R630), color variant, firmware revision, and serial numbers.
-- Dual Linux transport:
-  - Direct kernel socket transport using `AF_BLUETOOTH` with integrated pure-Python SDP channel discovery over L2CAP.
-  - BlueZ D-Bus Profile1 client with file descriptor passing.
-- Structured JSON output: `--json` flag on all commands for seamless integration with status bars and background daemons.
+- Telemetry and Placement: Real-time battery levels for left earbud, right earbud, and charging case, charging states, and wearing/placement status (in-ear, idle, in-case).
+- Noise Control: Switch between Active Noise Cancellation (ANC), Ambient Sound, Normal (Off), and Adaptive mode.
+- Sound Equalizer: Switch between official hardware EQ profiles (Normal/Off, Bass Boost, Soft, Dynamic, Clear, Treble Boost).
+- Stem Blade Lights (Buds 3 / Buds 3 Pro): Control stem LED light strips (Off, Steady, Fade, Blink).
+- Find My Earbuds: Trigger acoustic locator beeping on left, right, or both earbuds.
+- Voice Detect: Toggle automatic conversation detection and ambient auto-pause.
+- Ambient Volume: Control ambient sound amplification level (0 to 4).
+- Continuous Event Stream (`watch`): Stream newline-delimited JSON events on state changes without reconnecting the socket every query.
+- BlueZ Connection Control: Direct connect and disconnect via BlueZ D-Bus without external tools.
+- Touchpad Control: Lock or unlock touch gesture controls on both earbuds.
+- Hardware Inspection: Auto-detection of device model (e.g., SM-R530, SM-R630), color variant, firmware revision, and serial numbers.
+- Dual Linux Transport: Direct kernel socket transport using `AF_BLUETOOTH` with integrated L2CAP SDP channel resolver, or BlueZ D-Bus Profile1 client.
+- Structured JSON Output: `--json` flag on all commands for integration with desktop widgets and shell pipelines.
 
 ---
 
@@ -76,20 +81,20 @@ sequenceDiagram
     participant Earbuds as Galaxy Buds (RFCOMM)
 
     App->>SDP: Query ProtocolDescriptorList for Samsung SPP UUID
-    SDP-->>App: Return RFCOMM Server Channel (e.g., 27 or 20)
+    SDP-->>App: Return RFCOMM Server Channel (e.g. 20 or 27)
     App->>Earbuds: Connect socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM)
     Note over App,Earbuds: RFCOMM Connection Established
 
     App->>Earbuds: Send MANAGER_INFO [MsgId: 0x88, SDK: 34]
     Earbuds-->>App: Return EXTENDED_STATUS_UPDATED [MsgId: 0x61]
-    Note over App: Parse Battery L/R/Case, Placement, Charging Status
+    Note over App: Parse Battery L/R/Case, Placement, Charging, EQ
 
-    opt Noise Control or Touchpad Command
-        App->>Earbuds: Send NOISE_CONTROLS [MsgId: 0x78, Mode]
+    opt Command Execution
+        App->>Earbuds: Send Command [e.g. EQUALIZER, BUDS_LIGHTING_SYNC, NOISE_CONTROLS]
         Earbuds-->>App: Acknowledge State Change
     end
 
-    App->>Earbuds: Close Socket
+    App->>Earbuds: Close Socket (or keep open in watch mode)
 ```
 
 ---
@@ -149,180 +154,170 @@ cd gbuds-cli
 
 ### Global Options
 
-- `--mac MAC`: Specify target device Bluetooth address. If omitted, `gbuds` automatically detects paired Galaxy Buds via BlueZ D-Bus.
-- `--json`: Format command output as structured JSON.
+- `--mac MAC`: Specify target device Bluetooth address. If omitted, `gbuds` automatically detects paired Galaxy Buds via BlueZ D-Bus, prioritizing active connections.
+- `--json`: Format command output as structured JSON. Can be specified before or after any subcommand.
 - `--transport {direct,bluez}`: Choose transport backend. Default is `direct`.
 - `--channel CHANNEL`: Manually override the RFCOMM channel number.
 
 ---
 
-### 1. `info`
+### Summary of Subcommands
 
-Displays device model, marketing color, MAC address, connection state, firmware revision, and hardware serial numbers.
-
-```bash
-gbuds info
-```
-
-Output:
-
-```text
-========================================
-Device:            Buds3 de Jose
-Model:             Galaxy Buds3 (SM-R530)
-Color:             Silver
-MAC Address:       24:24:B7:DD:38:90
-Bluetooth Link:    Connected
-Supports ANC:      Yes
-Supports Adaptive: Yes
-Firmware Version:  R530XXU0AZD2
-----------------------------------------
-- Battery Left:    97%
-- Battery Right:   96%
-- Noise Control:   OFF
-- Touchpad:        Locked
-========================================
-```
-
-JSON output:
-
-```bash
-gbuds --json info
-```
-
-```json
-{
-  "success": true,
-  "connected": true,
-  "device": {
-    "name": "Buds3 de Jose",
-    "model": "Galaxy Buds3",
-    "model_code": "SM-R530",
-    "color": "Silver",
-    "mac_address": "24:24:B7:DD:38:90",
-    "connected": true,
-    "supports_anc": true,
-    "supports_adaptive": true,
-    "firmware_version": "R530XXU0AZD2",
-    "cradle_serial": null,
-    "left_serial": null,
-    "right_serial": null
-  },
-  "battery": {
-    "left": 97,
-    "right": 96,
-    "case": null,
-    "left_charging": false,
-    "right_charging": false,
-    "case_charging": false,
-    "is_coupled": true
-  },
-  "noise_control": "OFF",
-  "touchpad_locked": true
-}
-```
+| Subcommand | Arguments | Description |
+| :--- | :--- | :--- |
+| `info` | None | Displays model metadata, color, firmware, and telemetry |
+| `battery` | None | Queries battery percentages and in-ear placement status |
+| `anc` | `on`, `off`, `ambient`, `adaptive`, `toggle` | Controls noise cancellation and ambient modes |
+| `eq` | `normal`, `bass`, `soft`, `dynamic`, `clear`, `treble` | Sets or queries sound equalizer profile |
+| `lights` | `off`, `steady`, `fade`, `blink` | Controls stem LED blade lights (Buds 3 / Buds 3 Pro) |
+| `find` | `left`, `right`, `both`, `stop` | Makes earbuds ring to locate them |
+| `ambient-volume` | `0` to `4` | Sets ambient sound amplification level |
+| `voice-detect` | `on`, `off` | Toggles conversation detect auto-pause |
+| `touchpad` | `lock`, `unlock` | Locks or unlocks touch controls |
+| `watch` | `--interval SEC` | Streams continuous telemetry updates for widgets |
+| `connect` | None | Connects device via BlueZ Bluetooth |
+| `disconnect` | None | Disconnects device via BlueZ Bluetooth |
 
 ---
 
-### 2. `battery`
+### Examples
 
-Queries battery percentages for the left earbud, right earbud, and case.
+#### 1. Device Info
+
+```bash
+gbuds info
+gbuds info --json
+```
+
+#### 2. Battery and Placement Status
 
 ```bash
 gbuds battery
 ```
 
-JSON output:
+Output:
 
-```bash
-gbuds --json battery
+```text
+=== Galaxy Buds Battery & Placement ===
+- Left earbud:     88% [Wearing]
+- Right earbud:    86% [Wearing]
+- Case:            N/A (Buds out of case or closed)
+- Noise Control:   NOISE_REDUCTION
+- Equalizer:       DYNAMIC
+- Touchpad:        Unlocked
 ```
+
+JSON output:
 
 ```json
 {
   "success": true,
   "battery": {
-    "left": 96,
-    "right": 96,
+    "left": 88,
+    "right": 86,
     "case": null,
     "left_charging": false,
     "right_charging": false,
     "case_charging": false,
     "is_coupled": true
   },
-  "noise_control": "OFF",
-  "touchpad_locked": true
+  "placement": {
+    "left": "WEARING",
+    "right": "WEARING"
+  },
+  "noise_control": "NOISE_REDUCTION",
+  "equalizer": "DYNAMIC",
+  "touchpad_locked": false
 }
 ```
 
----
-
-### 3. `anc`
-
-Controls Active Noise Cancellation and ambient listening modes.
+#### 3. Noise Cancellation (ANC)
 
 ```bash
-# Toggle between ANC and Normal (Off)
 gbuds anc toggle
-
-# Set specific modes
-gbuds anc on        # Enable Active Noise Cancellation
-gbuds anc off       # Disable ANC (Normal mode)
-gbuds anc ambient   # Enable Ambient Sound mode
-gbuds anc adaptive  # Enable Adaptive mode (Buds3 / Buds3 Pro)
+gbuds anc on
+gbuds anc off
+gbuds anc ambient
+gbuds anc adaptive
 ```
 
-JSON output:
+#### 4. Equalizer Profiles
 
 ```bash
-gbuds --json anc on
+# Query current preset
+gbuds eq
+
+# Set profile
+gbuds eq dynamic
+gbuds eq bass
+gbuds eq clear
+gbuds eq normal
 ```
+
+#### 5. Blade Lights (Buds 3 / Buds 3 Pro)
+
+```bash
+gbuds lights steady
+gbuds lights fade
+gbuds lights blink
+gbuds lights off
+```
+
+#### 6. Find My Earbuds
+
+```bash
+gbuds find both
+gbuds find left
+gbuds find right
+gbuds find stop
+```
+
+#### 7. Continuous Telemetry Stream (`watch`)
+
+Keeps the connection open and streams newline-delimited JSON events whenever a parameter changes (battery, in-ear placement, equalizer, ANC mode):
+
+```bash
+gbuds watch --json
+```
+
+Streaming JSON output:
 
 ```json
-{
-  "success": true,
-  "action": "on",
-  "noise_control": "NOISE_REDUCTION"
-}
+{"left": 88, "right": 86, "case": 0, "left_charging": false, "right_charging": false, "case_charging": false, "is_coupled": true, "placement_left": "WEARING", "placement_right": "WEARING", "noise_control": "NOISE_REDUCTION", "equalizer": "DYNAMIC", "ambient_volume": null, "voice_detect": null, "blade_lights": null, "touchpad_locked": false}
 ```
 
----
+#### 8. Bluetooth Connect / Disconnect
 
-### 4. `touchpad`
-
-Locks or unlocks the touchpads to prevent accidental touches.
+Connect or disconnect the device via host BlueZ without shell subshells:
 
 ```bash
-gbuds touchpad lock
-gbuds touchpad unlock
-```
-
-JSON output:
-
-```bash
-gbuds --json touchpad lock
-```
-
-```json
-{
-  "success": true,
-  "action": "lock",
-  "touchpad_locked": true
-}
+gbuds connect
+gbuds disconnect
 ```
 
 ---
 
 ## Status Bar Integration Example (Waybar)
 
-Add a custom module to your Waybar configuration:
+### Polling Mode
 
 ```json
 "custom/gbuds": {
     "format": "Buds: L:{}% R:{}%",
-    "exec": "gbuds --json battery",
+    "exec": "gbuds battery --json",
     "return-type": "json",
     "interval": 30,
+    "on-click": "gbuds anc toggle"
+}
+```
+
+### Continuous Stream Mode (Zero Reconnection Overhead)
+
+```json
+"custom/gbuds": {
+    "format": "Buds: L:{left}% R:{right}%",
+    "exec": "gbuds watch --json",
+    "return-type": "json",
     "on-click": "gbuds anc toggle"
 }
 ```

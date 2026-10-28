@@ -17,6 +17,9 @@ class DeviceModelInfo:
     has_anc: bool = False
     has_ambient: bool = True
     supports_adaptive: bool = False
+    has_blade_lights: bool = False
+    has_voice_detect: bool = False
+    max_ambient_volume: int = 3
     advanced_touch_lock: bool = False
 
     @property
@@ -40,6 +43,9 @@ class DeviceModelInfo:
             "has_anc": self.has_anc,
             "has_ambient": self.has_ambient,
             "supports_adaptive": self.supports_adaptive,
+            "has_blade_lights": self.has_blade_lights,
+            "has_voice_detect": self.has_voice_detect,
+            "max_ambient_volume": self.max_ambient_volume,
             "advanced_touch_lock": self.advanced_touch_lock,
             "supported_noise_modes": self.supported_noise_modes,
         }
@@ -113,6 +119,9 @@ def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> Devic
         has_ambient = "Live" not in name
         supports_adaptive = "Buds3" in name
         adv_lock = "Buds2" in name or "Buds3" in name or "FE" in name
+        blade_lights = "Buds3" in name
+        voice_detect = "Pro" in name or ("Buds3" in name and "FE" not in name)
+        max_amb = 0 if "Live" in name else (2 if "Buds+" in name or name == "Galaxy Buds" else 3)
         return DeviceModelInfo(
             model_name=name,
             model_code=code,
@@ -121,26 +130,29 @@ def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> Devic
             has_anc=has_anc,
             has_ambient=has_ambient,
             supports_adaptive=supports_adaptive,
+            has_blade_lights=blade_lights,
+            has_voice_detect=voice_detect,
+            max_ambient_volume=max_amb,
             advanced_touch_lock=adv_lock,
         )
 
     # Fallback to name inspection
     name_upper = device_name.upper()
     if "BUDS3 PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds3 Pro", "SM-R630", "R630", has_anc=True, has_ambient=True, supports_adaptive=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds3 Pro", "SM-R630", "R630", has_anc=True, has_ambient=True, supports_adaptive=True, has_blade_lights=True, has_voice_detect=True, advanced_touch_lock=True)
     if "BUDS3" in name_upper:
-        return DeviceModelInfo("Galaxy Buds3", "SM-R530", "R530", has_anc=True, has_ambient=True, supports_adaptive=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds3", "SM-R530", "R530", has_anc=True, has_ambient=True, supports_adaptive=True, has_blade_lights=True, has_voice_detect=True, advanced_touch_lock=True)
     if "BUDS2 PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds2 Pro", "SM-R510", "R510", has_anc=True, has_ambient=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds2 Pro", "SM-R510", "R510", has_anc=True, has_ambient=True, has_voice_detect=True, advanced_touch_lock=True)
     if "BUDS2" in name_upper:
         return DeviceModelInfo("Galaxy Buds2", "SM-R177", "R177", has_anc=True, has_ambient=True, advanced_touch_lock=True)
     if "BUDS FE" in name_upper:
         return DeviceModelInfo("Galaxy Buds FE", "SM-R400N", "R400N", has_anc=True, has_ambient=True, advanced_touch_lock=True)
     if "BUDS LIVE" in name_upper:
-        return DeviceModelInfo("Galaxy Buds Live", "SM-R180", "R180", has_anc=True, has_ambient=False)
+        return DeviceModelInfo("Galaxy Buds Live", "SM-R180", "R180", has_anc=True, has_ambient=False, max_ambient_volume=0)
     if "BUDS PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds Pro", "SM-R190", "R190", has_anc=True, has_ambient=True)
+        return DeviceModelInfo("Galaxy Buds Pro", "SM-R190", "R190", has_anc=True, has_ambient=True, has_voice_detect=True)
     if "BUDS+" in name_upper or "BUDS PLUS" in name_upper:
-        return DeviceModelInfo("Galaxy Buds+", "SM-R175", "R175", has_anc=False, has_ambient=True)
+        return DeviceModelInfo("Galaxy Buds+", "SM-R175", "R175", has_anc=False, has_ambient=True, max_ambient_volume=2)
 
     return DeviceModelInfo("Galaxy Buds (Generic)", "Unknown", "Unknown", has_anc=True, has_ambient=True)
