@@ -89,16 +89,165 @@ DEVICE_ID_MAP: Dict[int, tuple[str, str, str, str]] = {
     # Buds FE
     330: ("Galaxy Buds FE", "SM-R400N", "Graphite", "R400N"),
     331: ("Galaxy Buds FE", "SM-R400N", "White", "R400N"),
-    # Buds3
+    # Buds3 (Open-type: ANC & Off only, no ambient, no adaptive, no blade lights)
     333: ("Galaxy Buds3", "SM-R530", "Silver", "R530"),
     334: ("Galaxy Buds3", "SM-R530", "White", "R530"),
-    # Buds3 Pro
+    # Buds3 Pro (Canal-type: ANC, Ambient, Adaptive, Blade lights, Voice detect)
     340: ("Galaxy Buds3 Pro", "SM-R630", "Silver", "R630"),
     341: ("Galaxy Buds3 Pro", "SM-R630", "White", "R630"),
     # Buds3 FE
     347: ("Galaxy Buds3 FE", "SM-R420", "Silver", "R420"),
     348: ("Galaxy Buds3 FE", "SM-R420", "White", "R420"),
 }
+
+
+def build_model_info(name: str, code: str, color: Optional[str], fw_prefix: str) -> DeviceModelInfo:
+    name_upper = name.upper()
+    
+    # 1. Buds 3 Pro (SM-R630): in-ear canal, full feature set
+    if "BUDS3 PRO" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=True,
+            supports_adaptive=True,
+            has_blade_lights=True,
+            has_voice_detect=True,
+            max_ambient_volume=3,
+            advanced_touch_lock=True,
+        )
+
+    # 2. Buds 3 (SM-R530): open-type, open ear canal (ANC and Off only)
+    # Open-ear design does not need or support Ambient Sound or Adaptive ANC,
+    # and standard Buds3 lacks the LED Blade Light strips of the Pro.
+    if "BUDS3" in name_upper and "PRO" not in name_upper and "FE" not in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=False,
+            supports_adaptive=False,
+            has_blade_lights=False,
+            has_voice_detect=False,
+            max_ambient_volume=0,
+            advanced_touch_lock=True,
+        )
+
+    # 3. Buds Live (SM-R180): open-ear bean (ANC and Off only)
+    if "LIVE" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=False,
+            supports_adaptive=False,
+            has_blade_lights=False,
+            has_voice_detect=False,
+            max_ambient_volume=0,
+            advanced_touch_lock=False,
+        )
+
+    # 4. Buds 2 Pro (SM-R510)
+    if "BUDS2 PRO" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=True,
+            supports_adaptive=False,
+            has_blade_lights=False,
+            has_voice_detect=True,
+            max_ambient_volume=3,
+            advanced_touch_lock=True,
+        )
+
+    # 5. Buds Pro (SM-R190)
+    if "BUDS PRO" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=True,
+            supports_adaptive=False,
+            has_blade_lights=False,
+            has_voice_detect=True,
+            max_ambient_volume=3,
+            advanced_touch_lock=False,
+        )
+
+    # 6. Buds 2 (SM-R177)
+    if "BUDS2" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=True,
+            supports_adaptive=False,
+            has_blade_lights=False,
+            has_voice_detect=False,
+            max_ambient_volume=3,
+            advanced_touch_lock=True,
+        )
+
+    # 7. Buds FE (SM-R400N) / Buds 3 FE (SM-R420)
+    if "FE" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=True,
+            supports_adaptive=False,
+            has_blade_lights=False,
+            has_voice_detect=False,
+            max_ambient_volume=3,
+            advanced_touch_lock=True,
+        )
+
+    # 8. Buds+ (SM-R175)
+    if "BUDS+" in name_upper or "BUDS PLUS" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=False,
+            has_ambient=True,
+            supports_adaptive=False,
+            has_blade_lights=False,
+            has_voice_detect=False,
+            max_ambient_volume=2,
+            advanced_touch_lock=False,
+        )
+
+    # 9. Galaxy Buds (2019, SM-R170)
+    return DeviceModelInfo(
+        model_name=name,
+        model_code=code,
+        firmware_prefix=fw_prefix,
+        color=color,
+        has_anc=False,
+        has_ambient=True,
+        supports_adaptive=False,
+        has_blade_lights=False,
+        has_voice_detect=False,
+        max_ambient_volume=2,
+        advanced_touch_lock=False,
+    )
 
 
 def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> DeviceModelInfo:
@@ -115,44 +264,25 @@ def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> Devic
 
     if device_id and device_id in DEVICE_ID_MAP:
         name, code, color, fw_prefix = DEVICE_ID_MAP[device_id]
-        has_anc = "Live" in name or "Pro" in name or "Buds2" in name or "Buds3" in name or "FE" in name
-        has_ambient = "Live" not in name
-        supports_adaptive = "Buds3" in name
-        adv_lock = "Buds2" in name or "Buds3" in name or "FE" in name
-        blade_lights = "Buds3" in name
-        voice_detect = "Pro" in name or ("Buds3" in name and "FE" not in name)
-        max_amb = 0 if "Live" in name else (2 if "Buds+" in name or name == "Galaxy Buds" else 3)
-        return DeviceModelInfo(
-            model_name=name,
-            model_code=code,
-            firmware_prefix=fw_prefix,
-            color=color,
-            has_anc=has_anc,
-            has_ambient=has_ambient,
-            supports_adaptive=supports_adaptive,
-            has_blade_lights=blade_lights,
-            has_voice_detect=voice_detect,
-            max_ambient_volume=max_amb,
-            advanced_touch_lock=adv_lock,
-        )
+        return build_model_info(name, code, color, fw_prefix)
 
     # Fallback to name inspection
     name_upper = device_name.upper()
     if "BUDS3 PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds3 Pro", "SM-R630", "R630", has_anc=True, has_ambient=True, supports_adaptive=True, has_blade_lights=True, has_voice_detect=True, advanced_touch_lock=True)
+        return build_model_info("Galaxy Buds3 Pro", "SM-R630", "Silver", "R630")
     if "BUDS3" in name_upper:
-        return DeviceModelInfo("Galaxy Buds3", "SM-R530", "R530", has_anc=True, has_ambient=True, supports_adaptive=True, has_blade_lights=True, has_voice_detect=True, advanced_touch_lock=True)
+        return build_model_info("Galaxy Buds3", "SM-R530", "Silver", "R530")
     if "BUDS2 PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds2 Pro", "SM-R510", "R510", has_anc=True, has_ambient=True, has_voice_detect=True, advanced_touch_lock=True)
+        return build_model_info("Galaxy Buds2 Pro", "SM-R510", "Graphite", "R510")
     if "BUDS2" in name_upper:
-        return DeviceModelInfo("Galaxy Buds2", "SM-R177", "R177", has_anc=True, has_ambient=True, advanced_touch_lock=True)
+        return build_model_info("Galaxy Buds2", "SM-R177", "Graphite", "R177")
     if "BUDS FE" in name_upper:
-        return DeviceModelInfo("Galaxy Buds FE", "SM-R400N", "R400N", has_anc=True, has_ambient=True, advanced_touch_lock=True)
+        return build_model_info("Galaxy Buds FE", "SM-R400N", "Graphite", "R400N")
     if "BUDS LIVE" in name_upper:
-        return DeviceModelInfo("Galaxy Buds Live", "SM-R180", "R180", has_anc=True, has_ambient=False, max_ambient_volume=0)
+        return build_model_info("Galaxy Buds Live", "SM-R180", "Mystic Black", "R180")
     if "BUDS PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds Pro", "SM-R190", "R190", has_anc=True, has_ambient=True, has_voice_detect=True)
+        return build_model_info("Galaxy Buds Pro", "SM-R190", "Phantom Black", "R190")
     if "BUDS+" in name_upper or "BUDS PLUS" in name_upper:
-        return DeviceModelInfo("Galaxy Buds+", "SM-R175", "R175", has_anc=False, has_ambient=True, max_ambient_volume=2)
+        return build_model_info("Galaxy Buds+", "SM-R175", "Black", "R175")
 
-    return DeviceModelInfo("Galaxy Buds (Generic)", "Unknown", "Unknown", has_anc=True, has_ambient=True)
+    return build_model_info("Galaxy Buds", "Unknown", "Standard", "Unknown")

@@ -100,7 +100,11 @@ class BudsClient:
         end_time = time.time() + timeout
 
         while time.time() < end_time:
-            chunk = self.transport.receive(timeout=0.3)
+            try:
+                chunk = self.transport.receive(timeout=0.3)
+            except (ConnectionResetError, ConnectionError, OSError):
+                break
+
             if chunk:
                 self.buffer.extend(chunk)
 
@@ -142,6 +146,23 @@ class BudsClient:
         if msg.msg_id in (MsgIds.EXTENDED_STATUS_UPDATED, MsgIds.STATUS_UPDATED):
             bat = decode_battery_status(msg)
             if bat:
+                if self.last_battery_status:
+                    if bat.placement_left is None:
+                        bat.placement_left = self.last_battery_status.placement_left
+                    if bat.placement_right is None:
+                        bat.placement_right = self.last_battery_status.placement_right
+                    if bat.noise_control_mode is None:
+                        bat.noise_control_mode = self.last_battery_status.noise_control_mode
+                    if bat.equalizer_preset is None:
+                        bat.equalizer_preset = self.last_battery_status.equalizer_preset
+                    if bat.touchpad_locked is None:
+                        bat.touchpad_locked = self.last_battery_status.touchpad_locked
+                    if bat.ambient_volume is None:
+                        bat.ambient_volume = self.last_battery_status.ambient_volume
+                    if bat.voice_detect is None:
+                        bat.voice_detect = self.last_battery_status.voice_detect
+                    if bat.blade_lights is None:
+                        bat.blade_lights = self.last_battery_status.blade_lights
                 self.last_battery_status = bat
 
         # MsgId 104 (0x68): VERSION_INFO_LONG
@@ -183,11 +204,17 @@ class BudsClient:
         """Sets noise control mode, validating device capabilities."""
         if model_info:
             if mode == NoiseControlMode.AMBIENT_SOUND and not model_info.has_ambient:
-                raise ValueError(f"{model_info.model_name} does not support Ambient Sound mode.")
+                raise ValueError(
+                    f"{model_info.model_name} does not support Ambient Sound (open-type earbud design)."
+                )
             if mode == NoiseControlMode.NOISE_REDUCTION and not model_info.has_anc:
-                raise ValueError(f"{model_info.model_name} does not support Active Noise Cancellation (ANC).")
+                raise ValueError(
+                    f"{model_info.model_name} does not support Active Noise Cancellation (ANC)."
+                )
             if mode == NoiseControlMode.ADAPTIVE and not model_info.supports_adaptive:
-                raise ValueError(f"{model_info.model_name} does not support Adaptive mode.")
+                raise ValueError(
+                    f"{model_info.model_name} does not support Adaptive Noise mode (exclusive to Buds3 Pro)."
+                )
 
         pkt = encode_noise_control(mode)
         self.transport.send(pkt)
@@ -197,9 +224,14 @@ class BudsClient:
         status = self.get_battery(timeout=1.0)
         current_mode = status.noise_control_mode if status else None
 
-        if model_info and not model_info.has_anc:
+        if model_info and not model_info.has_ambient:
+            # Models without Ambient (Buds3 open-type, Buds Live): toggle between OFF and ANC
+            new_mode = NoiseControlMode.OFF if current_mode == NoiseControlMode.NOISE_REDUCTION else NoiseControlMode.NOISE_REDUCTION
+        elif model_info and not model_info.has_anc:
+            # Models without ANC (Buds+, Buds 2019): toggle between OFF and AMBIENT_SOUND
             new_mode = NoiseControlMode.OFF if current_mode == NoiseControlMode.AMBIENT_SOUND else NoiseControlMode.AMBIENT_SOUND
         else:
+            # Standard models with both: toggle between OFF and ANC
             new_mode = NoiseControlMode.OFF if current_mode == NoiseControlMode.NOISE_REDUCTION else NoiseControlMode.NOISE_REDUCTION
 
         self.set_noise_control(new_mode, model_info=model_info)
@@ -211,9 +243,11 @@ class BudsClient:
         self.transport.send(pkt)
 
     def set_blade_lights(self, mode: BladeLightingMode, model_info: Optional[DeviceModelInfo] = None) -> None:
-        """Controls stem LED Blade Lights (Buds 3 / Buds 3 Pro)."""
+        """Controls stem LED Blade Lights (Buds 3 Pro)."""
         if model_info and not model_info.has_blade_lights:
-            raise ValueError(f"{model_info.model_name} does not have Blade Lights hardware.")
+            raise ValueError(
+                f"{model_info.model_name} does not have Blade Lights hardware (exclusive to Galaxy Buds3 Pro)."
+            )
         pkt = encode_blade_lights(mode)
         self.transport.send(pkt)
 
@@ -250,7 +284,9 @@ class BudsClient:
     def set_voice_detect(self, enable: bool, model_info: Optional[DeviceModelInfo] = None) -> None:
         """Toggles conversation / voice detect auto-pause."""
         if model_info and not model_info.has_voice_detect:
-            raise ValueError(f"{model_info.model_name} does not support Voice Detect.")
+            raise ValueError(
+                f"{model_info.model_name} does not support Voice Detect (exclusive to Pro models)."
+            )
         pkt = encode_voice_detect(enable)
         self.transport.send(pkt)
 
@@ -262,17 +298,21 @@ class BudsClient:
     def watch(self, interval: float = 0.5) -> Generator[BatteryStatus, None, None]:
         """
         Keeps RFCOMM connection open and yields BatteryStatus on telemetry events.
-        Ideal for Waybar, QuickShell, Polybar, or shell monitoring scripts.
+        Passively listens to spontaneous device state broadcasts (case, in-ear, battery, ANC).
         """
+        # Read initial status broadcast triggered by MANAGER_INFO handshake
+        self._read_messages(timeout=1.5)
         last_yielded = None
-        last_poll_time = 0.0
+        if self.last_battery_status:
+            last_yielded = self.last_battery_status.to_dict()
+            yield self.last_battery_status
 
-        # Initial query
-        self.transport.send(build_packet(MsgIds.STATUS_UPDATED))
-        
         while True:
-            # Poll messages
-            chunk = self.transport.receive(timeout=interval)
+            try:
+                chunk = self.transport.receive(timeout=interval)
+            except (ConnectionResetError, ConnectionError, OSError):
+                break
+
             if chunk:
                 self.buffer.extend(chunk)
 
@@ -305,16 +345,7 @@ class BudsClient:
                     self._process_incoming_message(msg)
                     packet_received = True
 
-            now = time.time()
-            # Send keep-alive / poll every 10 seconds if no spontaneous updates
-            if now - last_poll_time > 10.0:
-                try:
-                    self.transport.send(build_packet(MsgIds.STATUS_UPDATED))
-                    last_poll_time = now
-                except Exception:
-                    break
-
-            if self.last_battery_status:
+            if packet_received and self.last_battery_status:
                 current_dict = self.last_battery_status.to_dict()
                 if last_yielded is None or current_dict != last_yielded:
                     last_yielded = current_dict

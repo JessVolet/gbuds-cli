@@ -115,7 +115,10 @@ class DirectRfcommTransport(BaseTransport):
 
         self.sock.settimeout(timeout)
         try:
-            return self.sock.recv(1024)
+            data = self.sock.recv(1024)
+            if not data:
+                raise ConnectionResetError("Connection closed by Galaxy Buds peer.")
+            return data
         except (socket.timeout, BlockingIOError):
             return b""
 
@@ -252,7 +255,10 @@ class BluezProfileTransport(BaseTransport):
             raise RuntimeError("Socket is not connected.")
         self.sock.settimeout(timeout)
         try:
-            return self.sock.recv(1024)
+            data = self.sock.recv(1024)
+            if not data:
+                raise ConnectionResetError("Connection closed by Galaxy Buds peer.")
+            return data
         except (socket.timeout, BlockingIOError):
             return b""
 

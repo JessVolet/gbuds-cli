@@ -414,8 +414,13 @@ def main():
         elif args.command == "anc":
             if args.action != "toggle" and args.action not in model_info.supported_noise_modes:
                 modes_str = ", ".join(model_info.supported_noise_modes)
+                detail = ""
+                if args.action == "ambient" and not model_info.has_ambient:
+                    detail = " (open-type earbuds lack passive isolation and do not have Ambient Sound)"
+                elif args.action == "adaptive" and not model_info.supports_adaptive:
+                    detail = " (Adaptive mode is exclusive to Galaxy Buds3 Pro)"
                 emit_error(
-                    f"{model_info.model_name} does not support '{args.action}'. Supported modes: {modes_str}",
+                    f"{model_info.model_name} does not support '{args.action}'{detail}. Supported modes: {modes_str}",
                     as_json=args.json
                 )
 
@@ -488,7 +493,10 @@ def main():
 
         elif args.command in ["lights", "blade-lights"]:
             if not model_info.has_blade_lights:
-                emit_error(f"{model_info.model_name} does not have Blade Lights hardware.", as_json=args.json)
+                emit_error(
+                    f"{model_info.model_name} does not have Blade Lights hardware (LED light strips are exclusive to Galaxy Buds3 Pro).",
+                    as_json=args.json,
+                )
 
             light_map = {
                 "off": BladeLightingMode.OFF,
@@ -521,7 +529,10 @@ def main():
 
         elif args.command == "ambient-volume":
             if not model_info.has_ambient:
-                emit_error(f"{model_info.model_name} does not support Ambient Sound.", as_json=args.json)
+                emit_error(
+                    f"{model_info.model_name} does not support Ambient Sound (open-type earbud design).",
+                    as_json=args.json,
+                )
             client.set_ambient_volume(args.level, model_info=model_info)
             if args.json:
                 emit_json({
@@ -533,7 +544,10 @@ def main():
 
         elif args.command == "voice-detect":
             if not model_info.has_voice_detect:
-                emit_error(f"{model_info.model_name} does not support Voice Detect.", as_json=args.json)
+                emit_error(
+                    f"{model_info.model_name} does not support Voice Detect (conversation auto-pause is exclusive to Pro models).",
+                    as_json=args.json,
+                )
             enable = args.state.lower() == "on"
             client.set_voice_detect(enable, model_info=model_info)
             if args.json:
