@@ -17,6 +17,7 @@ from .protocol import (
 )
 from .client import BudsClient
 from .models import identify_device_from_uuids, DEVICE_ID_PREFIX
+from .updates import UpdateError, check_for_updates, install_release
 
 
 def _watch_status_dict(status) -> Dict[str, Any]:
@@ -180,6 +181,23 @@ def main():
         help="Show declared device features and Gbuds command coverage without connecting.",
     )
 
+    # Application updates are independent from Bluetooth device commands.
+    update_parser = subparsers.add_parser(
+        "update",
+        parents=[common_parser],
+        help="Check for a published Gbuds release; install only when explicitly requested.",
+    )
+    update_parser.add_argument(
+        "--install",
+        action="store_true",
+        help="Download and install the SHA-256-verified release wheel into the active virtual environment.",
+    )
+    update_parser.add_argument(
+        "--prerelease",
+        action="store_true",
+        help="Include beta and other pre-release versions when checking.",
+    )
+
     # Battery command
     subparsers.add_parser("battery", aliases=["status"], parents=[common_parser], help="Check battery percentage, wearing status, and state.")
 
@@ -266,6 +284,43 @@ def main():
             emit_error("No command specified.", as_json=True)
         parser.print_help()
         sys.exit(0)
+
+    if args.command == "update":
+        try:
+            update_check = check_for_updates(include_prerelease=args.prerelease)
+            release = update_check.release
+            installed = False
+            if args.install and update_check.update_available:
+                install_release(release)
+                installed = True
+        except UpdateError as exc:
+            emit_error(str(exc), as_json=args.json)
+
+        if args.json:
+            emit_json({
+                "success": True,
+                "current_version": update_check.current_version,
+                "latest_version": release.version if release else None,
+                "release_url": release.url if release else None,
+                "update_available": update_check.update_available,
+                "installed": installed,
+                "includes_prereleases": args.prerelease,
+            })
+        elif not release:
+            channel = " including pre-releases" if args.prerelease else " stable"
+            print(f"No published{channel} Gbuds release was found.")
+        elif update_check.update_available and installed:
+            print(f"Updated Gbuds to {release.version}. Restart any running Gbuds commands.")
+        elif update_check.update_available:
+            print(f"Update available: {update_check.current_version} -> {release.version}")
+            print(f"Release: {release.url}")
+            command = "gbuds update --install" + (" --prerelease" if args.prerelease else "")
+            print(f"Run '{command}' to install it.")
+        else:
+            print(f"Gbuds is up to date ({update_check.current_version}).")
+            if args.prerelease:
+                print("The check included pre-release versions.")
+        return
 
     try:
         mac = args.mac or auto_detect_buds_mac()

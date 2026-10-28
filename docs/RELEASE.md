@@ -2,6 +2,8 @@
 
 This guide prepares a release; it does not publish automatically. The project currently has no configured PyPI publisher or release automation.
 
+The `gbuds update` command reads published GitHub Releases. For automatic installs, attach the matching `gbuds-<version>-py3-none-any.whl` asset; GitHub's release API must provide its SHA-256 digest. Draft releases are never offered as updates.
+
 For pre-1.0 releases, use a Python-compatible pre-release identifier such as `0.1.0b1` for public testing. Use `0.1.0` only when intentionally declaring the first stable release; subsequent bug fixes should increment the patch component.
 
 ## Before cutting a release

@@ -25,6 +25,7 @@ Automatic discovery depends on BlueZ D-Bus Python bindings. Use `--mac` when tho
 
 | Command | Syntax | Notes |
 | --- | --- | --- |
+| `update` | `gbuds update [--install] [--prerelease]` | Checks published GitHub releases. Installation is opt-in and requires an active virtual environment. |
 | `capabilities` | `gbuds capabilities` | Reports model-declared features and Gbuds command coverage from cached BlueZ metadata; does not connect to the earbuds. `specifications` is an alias. |
 | `info` | `gbuds info` | Shows model, firmware, transport, capabilities, and telemetry when available. |
 | `battery` | `gbuds battery` | Reads battery, placement, ANC, EQ, and touchpad status. `status` is an alias. |
@@ -41,6 +42,8 @@ Automatic discovery depends on BlueZ D-Bus Python bindings. Use `--mac` when tho
 Hardware-dependent commands are rejected when the detected model declares the feature unsupported. A capability declaration is not a guarantee of physical validation; consult the [support matrix](DEVICE_SUPPORT.md).
 
 `gbuds capabilities --json` returns the detected device, declared noise-control modes, per-feature device support, and Gbuds command coverage. A feature can be marked `unknown` when the model is unidentified or the model table does not classify it. This command uses cached Bluetooth metadata and does not require an active RFCOMM connection. Automatic model detection requires BlueZ D-Bus; otherwise, output may be unknown.
+
+`gbuds update` checks the latest published stable GitHub release without changing the installation. Use `--prerelease` to include beta releases. Add `--install` to install a newer release; it downloads the official wheel, verifies its SHA-256 digest from GitHub's release metadata, and runs pip only inside the active virtual environment. System Python installs are refused. The check contacts GitHub and does not send Bluetooth addresses or earbud telemetry. `gbuds update --json` provides machine-readable check results.
 
 ## JSON and scripts
 
