@@ -4,7 +4,7 @@ Reverse-engineered from GalaxyBudsClient and official Samsung Wearable Manager.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 DEVICE_ID_PREFIX = "d908aab5-7a90-4cbe-8641-86a553db"
 
@@ -19,6 +19,18 @@ class DeviceModelInfo:
     supports_adaptive: bool = False
     advanced_touch_lock: bool = False
 
+    @property
+    def supported_noise_modes(self) -> List[str]:
+        modes = ["off"]
+        if self.has_anc:
+            modes.append("on")
+        if self.has_ambient:
+            modes.append("ambient")
+        if self.supports_adaptive:
+            modes.append("adaptive")
+        modes.append("toggle")
+        return modes
+
     def to_dict(self) -> dict:
         return {
             "model_name": self.model_name,
@@ -29,6 +41,7 @@ class DeviceModelInfo:
             "has_ambient": self.has_ambient,
             "supports_adaptive": self.supports_adaptive,
             "advanced_touch_lock": self.advanced_touch_lock,
+            "supported_noise_modes": self.supported_noise_modes,
         }
 
 
@@ -83,9 +96,6 @@ DEVICE_ID_MAP: Dict[int, tuple[str, str, str, str]] = {
 
 
 def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> DeviceModelInfo:
-    """
-    Identifies Samsung Galaxy Buds model, model code, and color from advertised Bluetooth UUIDs.
-    """
     device_id = None
     for u in uuids:
         u_clean = u.lower().strip()
@@ -100,6 +110,7 @@ def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> Devic
     if device_id and device_id in DEVICE_ID_MAP:
         name, code, color, fw_prefix = DEVICE_ID_MAP[device_id]
         has_anc = "Live" in name or "Pro" in name or "Buds2" in name or "Buds3" in name or "FE" in name
+        has_ambient = "Live" not in name
         supports_adaptive = "Buds3" in name
         adv_lock = "Buds2" in name or "Buds3" in name or "FE" in name
         return DeviceModelInfo(
@@ -108,6 +119,7 @@ def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> Devic
             firmware_prefix=fw_prefix,
             color=color,
             has_anc=has_anc,
+            has_ambient=has_ambient,
             supports_adaptive=supports_adaptive,
             advanced_touch_lock=adv_lock,
         )
@@ -115,20 +127,20 @@ def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> Devic
     # Fallback to name inspection
     name_upper = device_name.upper()
     if "BUDS3 PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds3 Pro", "SM-R630", "R630", has_anc=True, supports_adaptive=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds3 Pro", "SM-R630", "R630", has_anc=True, has_ambient=True, supports_adaptive=True, advanced_touch_lock=True)
     if "BUDS3" in name_upper:
-        return DeviceModelInfo("Galaxy Buds3", "SM-R530", "R530", has_anc=True, supports_adaptive=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds3", "SM-R530", "R530", has_anc=True, has_ambient=True, supports_adaptive=True, advanced_touch_lock=True)
     if "BUDS2 PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds2 Pro", "SM-R510", "R510", has_anc=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds2 Pro", "SM-R510", "R510", has_anc=True, has_ambient=True, advanced_touch_lock=True)
     if "BUDS2" in name_upper:
-        return DeviceModelInfo("Galaxy Buds2", "SM-R177", "R177", has_anc=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds2", "SM-R177", "R177", has_anc=True, has_ambient=True, advanced_touch_lock=True)
     if "BUDS FE" in name_upper:
-        return DeviceModelInfo("Galaxy Buds FE", "SM-R400N", "R400N", has_anc=True, advanced_touch_lock=True)
+        return DeviceModelInfo("Galaxy Buds FE", "SM-R400N", "R400N", has_anc=True, has_ambient=True, advanced_touch_lock=True)
     if "BUDS LIVE" in name_upper:
-        return DeviceModelInfo("Galaxy Buds Live", "SM-R180", "R180", has_anc=True)
+        return DeviceModelInfo("Galaxy Buds Live", "SM-R180", "R180", has_anc=True, has_ambient=False)
     if "BUDS PRO" in name_upper:
-        return DeviceModelInfo("Galaxy Buds Pro", "SM-R190", "R190", has_anc=True)
+        return DeviceModelInfo("Galaxy Buds Pro", "SM-R190", "R190", has_anc=True, has_ambient=True)
     if "BUDS+" in name_upper or "BUDS PLUS" in name_upper:
-        return DeviceModelInfo("Galaxy Buds+", "SM-R175", "R175", has_anc=False)
+        return DeviceModelInfo("Galaxy Buds+", "SM-R175", "R175", has_anc=False, has_ambient=True)
 
-    return DeviceModelInfo("Galaxy Buds (Generic)", "Unknown", "Unknown", has_anc=True)
+    return DeviceModelInfo("Galaxy Buds (Generic)", "Unknown", "Unknown", has_anc=True, has_ambient=True)

@@ -145,7 +145,9 @@ def main():
                         "mac_address": mac.upper(),
                         "connected": False,
                         "supports_anc": model_info.has_anc,
+                        "supports_ambient": model_info.has_ambient,
                         "supports_adaptive": model_info.supports_adaptive,
+                        "supported_noise_modes": model_info.supported_noise_modes,
                         "firmware_version": None,
                         "cradle_serial": None,
                         "left_serial": None,
@@ -164,7 +166,9 @@ def main():
                 print(f"MAC Address:       {mac.upper()}")
                 print(f"Bluetooth Link:    Disconnected")
                 print(f"Supports ANC:      {'Yes' if model_info.has_anc else 'No'}")
+                print(f"Supports Ambient:  {'Yes' if model_info.has_ambient else 'No'}")
                 print(f"Supports Adaptive: {'Yes' if model_info.supports_adaptive else 'No'}")
+                print(f"Supported Modes:   {', '.join(model_info.supported_noise_modes)}")
                 print("----------------------------------------")
                 print("[Notice] Device is currently disconnected from Bluetooth.")
                 print("         Connect device to retrieve live telemetry and firmware.")
@@ -179,6 +183,9 @@ def main():
         emit_error(f"Failed to connect to {mac}: {e}", as_json=args.json)
 
     try:
+        active_ch = getattr(client.transport, "channel", None)
+        busy_chs = getattr(client.transport, "busy_channels", [])
+
         if args.command in ["info", "device", "device-info"]:
             info = client.get_device_info(timeout=2.5)
             bat = info["battery"]
@@ -195,11 +202,19 @@ def main():
                         "mac_address": info["mac_address"],
                         "connected": True,
                         "supports_anc": info["has_anc"],
+                        "supports_ambient": info["has_ambient"],
                         "supports_adaptive": info["supports_adaptive"],
+                        "supported_noise_modes": info["supported_noise_modes"],
                         "firmware_version": info["firmware_version"],
                         "cradle_serial": info["cradle_serial"],
                         "left_serial": info["left_serial"],
                         "right_serial": info["right_serial"],
+                    },
+                    "connection": {
+                        "bluetooth_link": "Connected",
+                        "transport": client.transport_type,
+                        "active_channel": active_ch,
+                        "busy_channels": busy_chs,
                     },
                     "battery": {
                         "left": bat.left if bat else None,
@@ -220,8 +235,14 @@ def main():
                 print(f"Color:             {info['color']}")
                 print(f"MAC Address:       {info['mac_address']}")
                 print(f"Bluetooth Link:    Connected")
+                if active_ch:
+                    print(f"Active Transport:  Direct RFCOMM (Channel {active_ch})")
+                if busy_chs:
+                    print(f"External Daemon:   Detected on channel(s) {busy_chs} (connected via fallback channel {active_ch})")
                 print(f"Supports ANC:      {'Yes' if info['has_anc'] else 'No'}")
+                print(f"Supports Ambient:  {'Yes' if info['has_ambient'] else 'No'}")
                 print(f"Supports Adaptive: {'Yes' if info['supports_adaptive'] else 'No'}")
+                print(f"Supported Modes:   {', '.join(info['supported_noise_modes'])}")
                 if info["firmware_version"]:
                     print(f"Firmware Version:  {info['firmware_version']}")
                 if info["cradle_serial"]:
@@ -250,6 +271,10 @@ def main():
             if args.json:
                 emit_json({
                     "success": True,
+                    "connection": {
+                        "active_channel": active_ch,
+                        "busy_channels": busy_chs,
+                    },
                     "battery": {
                         "left": status.left,
                         "right": status.right,
@@ -274,10 +299,20 @@ def main():
                     print(f"- Noise Control:   {status.noise_control_mode.name}")
                 if status.touchpad_locked is not None:
                     print(f"- Touchpad:        {'Locked' if status.touchpad_locked else 'Unlocked'}")
+                if busy_chs:
+                    print(f"[Notice] External daemon detected on channel {busy_chs}; active via channel {active_ch}.")
 
         elif args.command == "anc":
+            # Hardware capability validation and restriction
+            if args.action != "toggle" and args.action not in model_info.supported_noise_modes:
+                modes_str = ", ".join(model_info.supported_noise_modes)
+                emit_error(
+                    f"{model_info.model_name} does not support '{args.action}'. Supported modes: {modes_str}",
+                    as_json=args.json
+                )
+
             if args.action == "toggle":
-                new_mode = client.toggle_anc()
+                new_mode = client.toggle_anc(model_info=model_info)
                 if args.json:
                     emit_json({
                         "success": True,
@@ -294,7 +329,11 @@ def main():
                     "adaptive": NoiseControlMode.ADAPTIVE,
                 }
                 mode = mode_map[args.action]
-                client.set_noise_control(mode)
+                try:
+                    client.set_noise_control(mode, model_info=model_info)
+                except ValueError as err:
+                    emit_error(str(err), as_json=args.json)
+
                 if args.json:
                     emit_json({
                         "success": True,

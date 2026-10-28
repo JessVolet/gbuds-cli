@@ -131,22 +131,31 @@ class BudsClient:
         self._read_messages(timeout=timeout)
         return self.last_battery_status
 
-    def set_noise_control(self, mode: NoiseControlMode) -> None:
-        """Sets noise control mode (Off, NoiseReduction, AmbientSound, Adaptive)."""
+    def set_noise_control(self, mode: NoiseControlMode, model_info: Optional[DeviceModelInfo] = None) -> None:
+        """Sets noise control mode, validating device capabilities."""
+        if model_info:
+            if mode == NoiseControlMode.AMBIENT_SOUND and not model_info.has_ambient:
+                raise ValueError(f"{model_info.model_name} does not support Ambient Sound mode.")
+            if mode == NoiseControlMode.NOISE_REDUCTION and not model_info.has_anc:
+                raise ValueError(f"{model_info.model_name} does not support Active Noise Cancellation (ANC).")
+            if mode == NoiseControlMode.ADAPTIVE and not model_info.supports_adaptive:
+                raise ValueError(f"{model_info.model_name} does not support Adaptive mode.")
+
         pkt = encode_noise_control(mode)
         self.transport.send(pkt)
 
-    def toggle_anc(self) -> NoiseControlMode:
-        """Toggles ANC between NoiseReduction and Off."""
+    def toggle_anc(self, model_info: Optional[DeviceModelInfo] = None) -> NoiseControlMode:
+        """Toggles noise control mode according to device hardware capabilities."""
         status = self.get_battery(timeout=1.0)
         current_mode = status.noise_control_mode if status else None
 
-        if current_mode == NoiseControlMode.NOISE_REDUCTION:
-            new_mode = NoiseControlMode.OFF
+        if model_info and not model_info.has_anc:
+            # For models without ANC (Buds+, Buds 2019), toggle Ambient and Off
+            new_mode = NoiseControlMode.OFF if current_mode == NoiseControlMode.AMBIENT_SOUND else NoiseControlMode.AMBIENT_SOUND
         else:
-            new_mode = NoiseControlMode.NOISE_REDUCTION
+            new_mode = NoiseControlMode.OFF if current_mode == NoiseControlMode.NOISE_REDUCTION else NoiseControlMode.NOISE_REDUCTION
 
-        self.set_noise_control(new_mode)
+        self.set_noise_control(new_mode, model_info=model_info)
         return new_mode
 
     def lock_touchpad(self, lock: bool) -> None:
@@ -197,10 +206,16 @@ class BudsClient:
             "model_code": model_info.model_code,
             "color": model_info.color or "Standard",
             "has_anc": model_info.has_anc,
+            "has_ambient": model_info.has_ambient,
             "supports_adaptive": model_info.supports_adaptive,
+            "supported_noise_modes": model_info.supported_noise_modes,
+            "transport_type": self.transport_type,
+            "active_channel": getattr(self.transport, "channel", None),
+            "busy_channels": getattr(self.transport, "busy_channels", []),
             "firmware_version": self.firmware_version,
             "cradle_serial": self.cradle_serial,
             "left_serial": self.left_serial,
             "right_serial": self.right_serial,
             "battery": self.last_battery_status,
+            "model_info": model_info,
         }

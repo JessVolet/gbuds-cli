@@ -55,6 +55,7 @@ class DirectRfcommTransport(BaseTransport):
         self.mac_address = mac_address.upper()
         self.explicit_channel = channel
         self.channel: Optional[int] = None
+        self.busy_channels: List[int] = []
         self.sock: Optional[socket.socket] = None
 
     def connect(self) -> None:
@@ -94,7 +95,8 @@ class DirectRfcommTransport(BaseTransport):
             except OSError as err:
                 s.close()
                 last_err = err
-                # If resource is busy (e.g. another daemon is holding this channel), try next channel
+                if getattr(err, "errno", None) in (16, 111):
+                    self.busy_channels.append(ch)
                 continue
 
         error_msg = f"Failed to connect to {self.mac_address} on channels {candidate_channels}: {last_err}"
