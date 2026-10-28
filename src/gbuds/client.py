@@ -34,9 +34,11 @@ from .models import DeviceModelInfo, identify_device_from_uuids
 class BudsClient:
     """Headless client for Samsung Galaxy Buds control and inspection."""
 
-    def __init__(self, mac_address: str, transport_type: str = "direct", channel: Optional[int] = None):
+    def __init__(self, mac_address: str, transport_type: str = "direct", channel: Optional[int] = None,
+                 model_code: Optional[str] = None):
         self.mac_address = mac_address.upper()
         self.transport_type = transport_type
+        self.model_code = model_code
         
         if transport_type == "bluez":
             self.transport: BaseTransport = BluezProfileTransport(self.mac_address)
@@ -144,7 +146,7 @@ class BudsClient:
     def _process_incoming_message(self, msg: SppMessage) -> None:
         """Processes message IDs to update cached status and info."""
         if msg.msg_id in (MsgIds.EXTENDED_STATUS_UPDATED, MsgIds.STATUS_UPDATED):
-            bat = decode_battery_status(msg)
+            bat = decode_battery_status(msg, model_code=self.model_code)
             if bat:
                 if self.last_battery_status:
                     if bat.placement_left is None:
@@ -278,6 +280,11 @@ class BudsClient:
         """Sets the ambient sound amplification level (0 to 4)."""
         if model_info and not model_info.has_ambient:
             raise ValueError(f"{model_info.model_name} does not support Ambient Sound.")
+        if model_info and not 0 <= level <= model_info.max_ambient_volume:
+            raise ValueError(
+                f"{model_info.model_name} supports ambient volume levels 0 to "
+                f"{model_info.max_ambient_volume}."
+            )
         pkt = encode_ambient_volume(level)
         self.transport.send(pkt)
 

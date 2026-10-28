@@ -89,7 +89,7 @@ DEVICE_ID_MAP: Dict[int, tuple[str, str, str, str]] = {
     # Buds FE
     330: ("Galaxy Buds FE", "SM-R400N", "Graphite", "R400N"),
     331: ("Galaxy Buds FE", "SM-R400N", "White", "R400N"),
-    # Buds3 (Open-type: ANC & Off only, no ambient, no adaptive, no blade lights)
+    # Buds3 (ambient sound supported; adaptive and blade lights are Pro-only)
     333: ("Galaxy Buds3", "SM-R530", "Silver", "R530"),
     334: ("Galaxy Buds3", "SM-R530", "White", "R530"),
     # Buds3 Pro (Canal-type: ANC, Ambient, Adaptive, Blade lights, Voice detect)
@@ -98,6 +98,13 @@ DEVICE_ID_MAP: Dict[int, tuple[str, str, str, str]] = {
     # Buds3 FE
     347: ("Galaxy Buds3 FE", "SM-R420", "Silver", "R420"),
     348: ("Galaxy Buds3 FE", "SM-R420", "White", "R420"),
+    # Buds4
+    355: ("Galaxy Buds4", "SM-R540", "Black", "R540"),
+    356: ("Galaxy Buds4", "SM-R540", "White", "R540"),
+    # Buds4 Pro
+    359: ("Galaxy Buds4 Pro", "SM-R640", "Black", "R640"),
+    360: ("Galaxy Buds4 Pro", "SM-R640", "White", "R640"),
+    361: ("Galaxy Buds4 Pro", "SM-R640", "Apricot", "R640"),
 }
 
 
@@ -116,13 +123,37 @@ def build_model_info(name: str, code: str, color: Optional[str], fw_prefix: str)
             supports_adaptive=True,
             has_blade_lights=True,
             has_voice_detect=True,
-            max_ambient_volume=3,
+            max_ambient_volume=2,
             advanced_touch_lock=True,
         )
 
-    # 2. Buds 3 (SM-R530): open-type, open ear canal (ANC and Off only)
-    # Open-ear design does not need or support Ambient Sound or Adaptive ANC,
-    # and standard Buds3 lacks the LED Blade Light strips of the Pro.
+    # Current model metadata follows GalaxyBudsClient device specifications.
+    if "BUDS4 PRO" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=True,
+            has_voice_detect=True,
+            max_ambient_volume=4,
+            advanced_touch_lock=True,
+        )
+
+    if "BUDS4" in name_upper:
+        return DeviceModelInfo(
+            model_name=name,
+            model_code=code,
+            firmware_prefix=fw_prefix,
+            color=color,
+            has_anc=True,
+            has_ambient=True,
+            max_ambient_volume=2,
+            advanced_touch_lock=True,
+        )
+
+    # 2. Buds 3 (SM-R530): supports ambient sound; adaptive and blade lighting are Pro-only.
     if "BUDS3" in name_upper and "PRO" not in name_upper and "FE" not in name_upper:
         return DeviceModelInfo(
             model_name=name,
@@ -130,11 +161,11 @@ def build_model_info(name: str, code: str, color: Optional[str], fw_prefix: str)
             firmware_prefix=fw_prefix,
             color=color,
             has_anc=True,
-            has_ambient=False,
+            has_ambient=True,
             supports_adaptive=False,
             has_blade_lights=False,
             has_voice_detect=False,
-            max_ambient_volume=0,
+            max_ambient_volume=2,
             advanced_touch_lock=True,
         )
 
@@ -166,7 +197,7 @@ def build_model_info(name: str, code: str, color: Optional[str], fw_prefix: str)
             supports_adaptive=False,
             has_blade_lights=False,
             has_voice_detect=True,
-            max_ambient_volume=3,
+            max_ambient_volume=2,
             advanced_touch_lock=True,
         )
 
@@ -198,7 +229,7 @@ def build_model_info(name: str, code: str, color: Optional[str], fw_prefix: str)
             supports_adaptive=False,
             has_blade_lights=False,
             has_voice_detect=False,
-            max_ambient_volume=3,
+            max_ambient_volume=2,
             advanced_touch_lock=True,
         )
 
@@ -214,7 +245,7 @@ def build_model_info(name: str, code: str, color: Optional[str], fw_prefix: str)
             supports_adaptive=False,
             has_blade_lights=False,
             has_voice_detect=False,
-            max_ambient_volume=3,
+            max_ambient_volume=2,
             advanced_touch_lock=True,
         )
 
@@ -245,7 +276,7 @@ def build_model_info(name: str, code: str, color: Optional[str], fw_prefix: str)
         supports_adaptive=False,
         has_blade_lights=False,
         has_voice_detect=False,
-        max_ambient_volume=2,
+        max_ambient_volume=4,
         advanced_touch_lock=False,
     )
 
@@ -270,6 +301,12 @@ def identify_device_from_uuids(uuids: list[str], device_name: str = "") -> Devic
     name_upper = device_name.upper()
     if "BUDS3 PRO" in name_upper:
         return build_model_info("Galaxy Buds3 Pro", "SM-R630", "Silver", "R630")
+    if "BUDS4 PRO" in name_upper:
+        return build_model_info("Galaxy Buds4 Pro", "SM-R640", "Black", "R640")
+    if "BUDS4" in name_upper:
+        return build_model_info("Galaxy Buds4", "SM-R540", "Black", "R540")
+    if "BUDS3 FE" in name_upper:
+        return build_model_info("Galaxy Buds3 FE", "SM-R420", "Silver", "R420")
     if "BUDS3" in name_upper:
         return build_model_info("Galaxy Buds3", "SM-R530", "Silver", "R530")
     if "BUDS2 PRO" in name_upper:

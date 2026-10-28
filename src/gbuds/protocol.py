@@ -53,7 +53,7 @@ class NoiseControlMode(IntEnum):
     OFF = 0              # Normal (ANC and Ambient disabled)
     NOISE_REDUCTION = 1  # ANC active
     AMBIENT_SOUND = 2    # Ambient Sound active
-    ADAPTIVE = 3         # Adaptive (Buds 3 / Buds 3 Pro)
+    ADAPTIVE = 3         # Adaptive (Buds3 Pro; model support is validated separately)
 
 
 class EqualizerPreset(IntEnum):
@@ -154,13 +154,13 @@ class BatteryStatus:
             "right_charging": self.right_charging,
             "case_charging": self.case_charging,
             "is_coupled": self.is_coupled,
-            "placement_left": self.placement_left.name if self.placement_left else None,
-            "placement_right": self.placement_right.name if self.placement_right else None,
-            "noise_control": self.noise_control_mode.name if self.noise_control_mode else None,
-            "equalizer": self.equalizer_preset.name if self.equalizer_preset else None,
+            "placement_left": self.placement_left.name if self.placement_left is not None else None,
+            "placement_right": self.placement_right.name if self.placement_right is not None else None,
+            "noise_control": self.noise_control_mode.name if self.noise_control_mode is not None else None,
+            "equalizer": self.equalizer_preset.name if self.equalizer_preset is not None else None,
             "ambient_volume": self.ambient_volume,
             "voice_detect": self.voice_detect,
-            "blade_lights": self.blade_lights.name if self.blade_lights else None,
+            "blade_lights": self.blade_lights.name if self.blade_lights is not None else None,
             "touchpad_locked": self.touchpad_locked,
         }
 
@@ -230,7 +230,7 @@ def parse_packet(raw: bytes, som: int = SOM, eom: int = EOM) -> Optional[SppMess
     )
 
 
-def decode_battery_status(msg: SppMessage) -> Optional[BatteryStatus]:
+def decode_battery_status(msg: SppMessage, model_code: Optional[str] = None) -> Optional[BatteryStatus]:
     """
     Decodes EXTENDED_STATUS_UPDATED (0x61) or STATUS_UPDATED (0x60).
     """
@@ -257,22 +257,26 @@ def decode_battery_status(msg: SppMessage) -> Optional[BatteryStatus]:
         except ValueError:
             pass
 
-        # Equalizer Mode (Byte 9 for >= Buds Live, Byte 11 for Buds+)
+        # Buds+ has a distinct payload layout; later models use byte 9 for EQ.
         eq_preset = None
-        if len(p) > 9 and 0 <= p[9] <= 5:
+        eq_index = 11 if model_code == "SM-R175" else 9
+        if len(p) > eq_index and 0 <= p[eq_index] <= 5:
             try:
-                eq_preset = EqualizerPreset(p[9])
+                eq_preset = EqualizerPreset(p[eq_index])
             except ValueError:
                 pass
 
-        # Touchpad lock
+        # Advanced touch lock is inverted in bit 7; earlier models use byte booleans.
         touchpad_locked = None
         if len(p) > 10:
-            touchpad_locked = bool(p[10] & 0x80) if (p[10] & 0x80) else bool(p[10])
+            if model_code in {"SM-R177", "SM-R400N", "SM-R510", "SM-R530", "SM-R630", "SM-R420"}:
+                touchpad_locked = not bool(p[10] & 0x80)
+            else:
+                touchpad_locked = p[10] == 1
 
         # Noise control mode (typically at byte 12 or byte 21)
         nc_mode = None
-        if len(p) > 12 and p[12] <= 3:
+        if model_code != "SM-R175" and len(p) > 12 and p[12] <= 3:
             try:
                 nc_mode = NoiseControlMode(p[12])
             except ValueError:

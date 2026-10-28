@@ -3,6 +3,16 @@ Unit tests for Galaxy Buds protocol serialization, CRC16, and decoders.
 """
 
 import unittest
+from pathlib import Path
+from contextlib import redirect_stdout
+from io import StringIO
+from unittest.mock import patch
+import json
+import sys
+from gbuds.cli import main, _select_buds_mac, _watch_status_dict, auto_detect_buds_mac
+from gbuds.client import BudsClient
+from gbuds.models import DEVICE_ID_PREFIX, build_model_info, identify_device_from_uuids
+from gbuds.sdp import parse_element
 from gbuds.protocol import (
     SOM,
     EOM,
@@ -12,6 +22,7 @@ from gbuds.protocol import (
     EqualizerPreset,
     BladeLightingMode,
     PlacementState,
+    BatteryStatus,
     crc16_ccitt,
     build_packet,
     parse_packet,
@@ -29,6 +40,127 @@ from gbuds.protocol import (
 
 
 class TestBudsProtocol(unittest.TestCase):
+
+    def test_sdp_parser_rejects_truncated_and_invalid_remote_data(self):
+        malformed_elements = (
+            b"",                 # missing header
+            b"\x25\x04\x01",   # truncated variable-width payload
+            b"\x18\x01",       # UUID with an invalid size
+            b"\x29",           # boolean with an invalid size
+            b"\x35\x01",       # sequence ending before its nested element
+        )
+        for element in malformed_elements:
+            with self.subTest(element=element), self.assertRaises(ValueError):
+                parse_element(element)
+
+    def test_watch_json_normalizes_unavailable_zero_case_like_battery(self):
+        status = BatteryStatus(left=96, right=100, case=0)
+        self.assertIsNone(_watch_status_dict(status)["case"])
+        status.case = 46
+        self.assertEqual(_watch_status_dict(status)["case"], 46)
+
+    def test_cli_json_option_works_before_and_after_subcommand(self):
+        for argv in (("gbuds", "--json", "battery"), ("gbuds", "battery", "--json")):
+            with self.subTest(argv=argv):
+                output = StringIO()
+                with patch.object(sys, "argv", list(argv)), \
+                     patch("gbuds.cli.auto_detect_buds_mac", return_value=None), \
+                     redirect_stdout(output):
+                    with self.assertRaises(SystemExit) as exit_result:
+                        main()
+                self.assertEqual(exit_result.exception.code, 1)
+                self.assertFalse(json.loads(output.getvalue())["success"])
+
+    def test_device_selection_is_deterministic_and_requires_mac_for_ambiguity(self):
+        self.assertEqual(_select_buds_mac(["AA:00"], ["BB:00"]), "AA:00")
+        self.assertEqual(_select_buds_mac([], ["BB:00"]), "BB:00")
+        with self.assertRaisesRegex(ValueError, "Multiple Galaxy Buds are connected"):
+            _select_buds_mac(["AA:00", "BB:00"], [])
+        with self.assertRaisesRegex(ValueError, "Multiple paired Galaxy Buds"):
+            _select_buds_mac([], ["AA:00", "BB:00"])
+
+    def test_auto_detection_ignores_unpaired_disconnected_devices(self):
+        devices = {
+            "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {
+                "Address": "AA:00", "Name": "Galaxy Buds FE", "UUIDs": [],
+                "Connected": False, "Paired": False,
+            }},
+            "/org/bluez/hci0/dev_BB": {"org.bluez.Device1": {
+                "Address": "BB:00", "Name": "Galaxy Buds3", "UUIDs": [],
+                "Connected": False, "Paired": True,
+            }},
+        }
+
+        class ObjectManager:
+            @staticmethod
+            def GetManagedObjects():
+                return devices
+
+        bus = type("Bus", (), {"get_object": lambda self, *_args: ObjectManager()})()
+        fake_dbus = type("DBus", (), {
+            "SystemBus": staticmethod(lambda: bus),
+            "Interface": staticmethod(lambda obj, _interface: obj),
+        })
+        with patch.dict(sys.modules, {"dbus": fake_dbus}):
+            self.assertEqual(auto_detect_buds_mac(), "BB:00")
+
+    def test_model_capabilities_follow_reference_device_specs(self):
+        buds3 = build_model_info("Galaxy Buds3", "SM-R530", "Silver", "R530")
+        buds3_pro = build_model_info("Galaxy Buds3 Pro", "SM-R630", "Silver", "R630")
+        buds_pro = build_model_info("Galaxy Buds Pro", "SM-R190", "Black", "R190")
+        buds2_pro = build_model_info("Galaxy Buds2 Pro", "SM-R510", "Graphite", "R510")
+        fe = build_model_info("Galaxy Buds FE", "SM-R400N", "Graphite", "R400N")
+        live = build_model_info("Galaxy Buds Live", "SM-R180", "Black", "R180")
+        self.assertTrue(buds3.has_ambient)
+        self.assertEqual(buds3.max_ambient_volume, 2)
+        self.assertFalse(buds3.supports_adaptive)
+        self.assertFalse(buds3.has_blade_lights)
+        self.assertEqual(buds3_pro.max_ambient_volume, 2)
+        self.assertEqual(buds_pro.max_ambient_volume, 3)
+        self.assertEqual(buds2_pro.max_ambient_volume, 2)
+        self.assertEqual(fe.max_ambient_volume, 2)
+        self.assertFalse(live.has_ambient)
+
+    def test_current_reference_models_are_recognized_without_claiming_physical_validation(self):
+        buds3_fe = identify_device_from_uuids([], "Galaxy Buds3 FE de Jose")
+        buds4 = identify_device_from_uuids([], "Galaxy Buds4 de Jose")
+        buds4_pro = identify_device_from_uuids([], "Galaxy Buds4 Pro de Jose")
+        buds4_from_id = identify_device_from_uuids([f"{DEVICE_ID_PREFIX}{355:x}"])
+        self.assertEqual(buds3_fe.model_code, "SM-R420")
+        self.assertEqual(buds4.model_code, "SM-R540")
+        self.assertEqual(buds4_pro.model_code, "SM-R640")
+        self.assertEqual(buds4_from_id.model_code, "SM-R540")
+        self.assertEqual(buds4.max_ambient_volume, 2)
+        self.assertEqual(buds4_pro.max_ambient_volume, 4)
+        self.assertTrue(buds4_pro.has_voice_detect)
+
+    def test_ambient_volume_rejects_values_above_model_limit(self):
+        fe = build_model_info("Galaxy Buds FE", "SM-R400N", "Graphite", "R400N")
+        client = BudsClient("00:11:22:33:44:55", model_code=fe.model_code)
+        with self.assertRaisesRegex(ValueError, "levels 0 to 2"):
+            client.set_ambient_volume(3, model_info=fe)
+
+    def test_reference_fixtures_match_model_specific_status_fields(self):
+        fixture_dir = Path(__file__).parent / "fixtures"
+        cases = {
+            "BudsFe_rev2.bin": ("SM-R400N", 58, 89, 0, EqualizerPreset.OFF, NoiseControlMode.OFF, False),
+            "Buds2_rev10.bin": ("SM-R177", 100, 100, 51, EqualizerPreset.DYNAMIC, NoiseControlMode.NOISE_REDUCTION, True),
+            "BudsPlus_rev13.bin": ("SM-R175", 87, 84, None, EqualizerPreset.DYNAMIC, None, False),
+            "BudsLive_rev9.bin": ("SM-R180", 15, 97, 100, EqualizerPreset.OFF, NoiseControlMode.NOISE_REDUCTION, False),
+            "BudsPro_rev10.bin": ("SM-R190", 89, 94, 100, EqualizerPreset.BASS_BOOST, NoiseControlMode.OFF, False),
+            "Buds2Pro_rev13.bin": ("SM-R510", 100, 100, 88, EqualizerPreset.BASS_BOOST, NoiseControlMode.OFF, False),
+        }
+        for filename, expected in cases.items():
+            with self.subTest(model=filename):
+                msg = parse_packet((fixture_dir / filename).read_bytes())
+                self.assertIsNotNone(msg)
+                status = decode_battery_status(msg, model_code=expected[0])
+                self.assertIsNotNone(status)
+                self.assertEqual(
+                    (status.left, status.right, status.case, status.equalizer_preset,
+                     status.noise_control_mode, status.touchpad_locked),
+                    expected[1:],
+                )
 
     def test_crc16_and_packet_with_recorded_fixture(self):
         # Buds2_rev10.bin raw fixture:

@@ -13,9 +13,18 @@ from .protocol import (
     PlacementState,
     SPP_UUID_NEW,
     SPP_UUID_STANDARD,
+    SPP_UUID_LEGACY,
 )
 from .client import BudsClient
 from .models import identify_device_from_uuids, DEVICE_ID_PREFIX
+
+
+def _watch_status_dict(status) -> Dict[str, Any]:
+    """Serialize watch telemetry using the same unavailable-case rule as battery."""
+    data = status.to_dict()
+    if data["case"] is not None and data["case"] <= 0:
+        data["case"] = None
+    return data
 
 
 def get_bluez_device_props(mac: str) -> Optional[Dict[str, Any]]:
@@ -34,6 +43,24 @@ def get_bluez_device_props(mac: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _select_buds_mac(connected_candidates: list[str], paired_candidates: list[str]) -> Optional[str]:
+    if len(connected_candidates) == 1:
+        return connected_candidates[0]
+    if len(connected_candidates) > 1:
+        devices = ", ".join(connected_candidates)
+        raise ValueError(
+            f"Multiple Galaxy Buds are connected ({devices}). Specify the target with --mac."
+        )
+    if len(paired_candidates) == 1:
+        return paired_candidates[0]
+    if len(paired_candidates) > 1:
+        devices = ", ".join(paired_candidates)
+        raise ValueError(
+            f"Multiple paired Galaxy Buds are available ({devices}). Specify the target with --mac."
+        )
+    return None
+
+
 def auto_detect_buds_mac() -> Optional[str]:
     try:
         import dbus
@@ -43,7 +70,7 @@ def auto_detect_buds_mac() -> Optional[str]:
         objects = om.GetManagedObjects()
 
         connected_candidates = []
-        other_candidates = []
+        paired_candidates = []
 
         for path, ifaces in objects.items():
             if "org.bluez.Device1" in ifaces:
@@ -51,9 +78,13 @@ def auto_detect_buds_mac() -> Optional[str]:
                 name = str(props.get("Name", ""))
                 uuids = [str(u).lower() for u in props.get("UUIDs", [])]
                 is_connected = bool(props.get("Connected", False))
+                is_paired = bool(props.get("Paired", False))
                 addr = str(props.get("Address"))
 
-                is_buds = "Buds" in name or SPP_UUID_NEW.lower() in uuids or SPP_UUID_STANDARD.lower() in uuids
+                is_buds = "buds" in name.lower() or any(
+                    service_uuid.lower() in uuids
+                    for service_uuid in (SPP_UUID_NEW, SPP_UUID_STANDARD, SPP_UUID_LEGACY)
+                )
                 if not is_buds:
                     for u in uuids:
                         if u.startswith(DEVICE_ID_PREFIX.lower()):
@@ -63,13 +94,12 @@ def auto_detect_buds_mac() -> Optional[str]:
                 if is_buds:
                     if is_connected:
                         connected_candidates.append(addr)
-                    else:
-                        other_candidates.append(addr)
+                    elif is_paired:
+                        paired_candidates.append(addr)
 
-        if connected_candidates:
-            return connected_candidates[0]
-        if other_candidates:
-            return other_candidates[0]
+        return _select_buds_mac(connected_candidates, paired_candidates)
+    except ValueError:
+        raise
     except Exception:
         pass
     return None
@@ -105,24 +135,25 @@ def main():
     common_parser.add_argument(
         "--mac",
         type=str,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Bluetooth MAC address of the Galaxy Buds. Auto-detected if omitted.",
     )
     common_parser.add_argument(
         "--json",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="Output structured JSON instead of plain text.",
     )
     common_parser.add_argument(
         "--transport",
         choices=["direct", "bluez"],
-        default="direct",
+        default=argparse.SUPPRESS,
         help="Transport backend: direct (kernel socket + SDP) or bluez (D-Bus Profile1).",
     )
     common_parser.add_argument(
         "--channel",
         type=int,
-        default=None,
+        default=argparse.SUPPRESS,
         help="Explicit RFCOMM channel. Auto-discovered via SDP if omitted.",
     )
 
@@ -172,8 +203,8 @@ def main():
         help="Preset: normal/off, bass, soft, dynamic, clear, treble. Shows current preset if omitted.",
     )
 
-    # Blade Lights command (Buds 3 / Buds 3 Pro)
-    lights_parser = subparsers.add_parser("lights", aliases=["blade-lights"], parents=[common_parser], help="Control stem LED blade lights (Buds 3 / Buds 3 Pro).")
+    # Blade Lights command (Buds3 Pro only)
+    lights_parser = subparsers.add_parser("lights", aliases=["blade-lights"], parents=[common_parser], help="Control stem LED Blade Lights (Buds3 Pro only).")
     lights_parser.add_argument(
         "mode",
         choices=["off", "steady", "fade", "blink"],
@@ -191,12 +222,12 @@ def main():
     )
 
     # Ambient volume command
-    amb_parser = subparsers.add_parser("ambient-volume", parents=[common_parser], help="Set ambient sound amplification level.")
+    amb_parser = subparsers.add_parser("ambient-volume", parents=[common_parser], help="Set the model-supported ambient sound amplification level.")
     amb_parser.add_argument(
         "level",
         type=int,
         choices=[0, 1, 2, 3, 4],
-        help="Volume level (0 to 4).",
+        help="Volume level (0 to 4; the detected model may support a lower maximum).",
     )
 
     # Voice Detect command
@@ -217,6 +248,10 @@ def main():
     )
 
     args = parser.parse_args()
+    args.mac = getattr(args, "mac", None)
+    args.json = getattr(args, "json", False)
+    args.transport = getattr(args, "transport", "direct")
+    args.channel = getattr(args, "channel", None)
 
     if not args.command:
         if args.json:
@@ -224,7 +259,10 @@ def main():
         parser.print_help()
         sys.exit(0)
 
-    mac = args.mac or auto_detect_buds_mac()
+    try:
+        mac = args.mac or auto_detect_buds_mac()
+    except ValueError as exc:
+        emit_error(str(exc), as_json=args.json)
     if not mac:
         emit_error("No Galaxy Buds MAC address specified and none auto-detected via BlueZ.", as_json=args.json)
 
@@ -295,7 +333,12 @@ def main():
                 print("==============================================")
             return
 
-    client = BudsClient(mac_address=mac, transport_type=args.transport, channel=args.channel)
+    client = BudsClient(
+        mac_address=mac,
+        transport_type=args.transport,
+        channel=args.channel,
+        model_code=model_info.model_code,
+    )
     try:
         client.connect()
     except Exception as e:
@@ -387,11 +430,11 @@ def main():
                         "is_coupled": status.is_coupled,
                     },
                     "placement": {
-                        "left": status.placement_left.name if status.placement_left else None,
-                        "right": status.placement_right.name if status.placement_right else None,
+                        "left": status.placement_left.name if status.placement_left is not None else None,
+                        "right": status.placement_right.name if status.placement_right is not None else None,
                     },
-                    "noise_control": status.noise_control_mode.name if status.noise_control_mode else None,
-                    "equalizer": status.equalizer_preset.name if status.equalizer_preset else None,
+                    "noise_control": status.noise_control_mode.name if status.noise_control_mode is not None else None,
+                    "equalizer": status.equalizer_preset.name if status.equalizer_preset is not None else None,
                     "touchpad_locked": status.touchpad_locked,
                 })
             else:
@@ -530,7 +573,12 @@ def main():
         elif args.command == "ambient-volume":
             if not model_info.has_ambient:
                 emit_error(
-                    f"{model_info.model_name} does not support Ambient Sound (open-type earbud design).",
+                    f"{model_info.model_name} does not support Ambient Sound.",
+                    as_json=args.json,
+                )
+            if args.level > model_info.max_ambient_volume:
+                emit_error(
+                    f"{model_info.model_name} supports ambient volume levels 0 to {model_info.max_ambient_volume}.",
                     as_json=args.json,
                 )
             client.set_ambient_volume(args.level, model_info=model_info)
@@ -574,14 +622,14 @@ def main():
             try:
                 for status in client.watch(interval=args.interval):
                     if args.json:
-                        print(json.dumps(status.to_dict()), flush=True)
+                        print(json.dumps(_watch_status_dict(status)), flush=True)
                     else:
                         timestamp = time.strftime("%H:%M:%S")
                         l_plac = format_placement(status.placement_left)
                         r_plac = format_placement(status.placement_right)
-                        anc_mode = status.noise_control_mode.name if status.noise_control_mode else "N/A"
-                        eq_mode = status.equalizer_preset.name if status.equalizer_preset else "N/A"
-                        case_str = f"{status.case}%" if status.case is not None else "N/A"
+                        anc_mode = status.noise_control_mode.name if status.noise_control_mode is not None else "N/A"
+                        eq_mode = status.equalizer_preset.name if status.equalizer_preset is not None else "N/A"
+                        case_str = f"{status.case}%" if status.case is not None and status.case > 0 else "N/A"
                         print(
                             f"[{timestamp}] L: {status.left}% ({l_plac}) | R: {status.right}% ({r_plac}) | "
                             f"Case: {case_str} | ANC: {anc_mode} | EQ: {eq_mode}",

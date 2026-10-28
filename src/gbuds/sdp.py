@@ -20,10 +20,12 @@ PDU_SEARCH_ATTR_RESPONSE = 0x07
 T_NIL, T_UINT, T_INT, T_UUID, T_TEXT, T_BOOL, T_SEQ, T_ALT, T_URL = range(9)
 
 
-def parse_element(buf: bytes, pos: int = 0):
-    """Decodes one SDP data element; returns (value, next_pos)."""
-    if pos >= len(buf):
-        return None, pos
+def parse_element(buf: bytes, pos: int = 0, _depth: int = 0):
+    """Decode one bounded SDP data element; malformed input raises ValueError."""
+    if _depth > 32:
+        raise ValueError("SDP nesting exceeds the maximum depth")
+    if pos < 0 or pos >= len(buf):
+        raise ValueError("Missing SDP data element")
     head = buf[pos]
     kind, size_index = head >> 3, head & 7
     pos += 1
@@ -33,23 +35,34 @@ def parse_element(buf: bytes, pos: int = 0):
         size = (1, 2, 4, 8, 16)[size_index]
     else:
         width = (1, 2, 4)[size_index - 5]
+        if pos + width > len(buf):
+            raise ValueError("Truncated SDP data element length")
         size = int.from_bytes(buf[pos : pos + width], "big")
         pos += width
+    if size > len(buf) - pos:
+        raise ValueError("Truncated SDP data element payload")
     data = buf[pos : pos + size]
     end = pos + size
     if kind in (T_SEQ, T_ALT):
         items, inner = [], 0
         while inner < len(data):
-            value, inner = parse_element(data, inner)
+            value, next_inner = parse_element(data, inner, _depth + 1)
+            if next_inner <= inner:
+                raise ValueError("Invalid SDP sequence element length")
+            inner = next_inner
             items.append(value)
         return items, end
     if kind == T_UUID:
+        if size not in (2, 4, 16):
+            raise ValueError("Invalid SDP UUID size")
         return (uuidlib.UUID(bytes=bytes(data)) if size == 16 else int.from_bytes(data, "big")), end
     if kind == T_UINT:
         return int.from_bytes(data, "big"), end
     if kind == T_INT:
         return int.from_bytes(data, "big", signed=True), end
     if kind == T_BOOL:
+        if size != 1:
+            raise ValueError("Invalid SDP boolean size")
         return bool(data[0]), end
     return bytes(data), end
 
