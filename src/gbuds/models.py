@@ -19,6 +19,18 @@ class DeviceModelInfo:
     supports_adaptive: bool = False
     advanced_touch_lock: bool = False
 
+    def to_dict(self) -> dict:
+        return {
+            "model_name": self.model_name,
+            "model_code": self.model_code,
+            "firmware_prefix": self.firmware_prefix,
+            "color": self.color,
+            "has_anc": self.has_anc,
+            "has_ambient": self.has_ambient,
+            "supports_adaptive": self.supports_adaptive,
+            "advanced_touch_lock": self.advanced_touch_lock,
+        }
+
 
 # Map of Samsung DeviceId integer -> (Model Name, Model Code, Color, FW Prefix)
 DEVICE_ID_MAP: Dict[int, tuple[str, str, str, str]] = {

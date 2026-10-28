@@ -1,4 +1,5 @@
-"""Samsung Galaxy Buds Headless Protocol & Client Package."""
+"""gbuds - Headless Linux control library for Samsung Galaxy Buds."""
+
 from .protocol import (
     MsgIds,
     NoiseControlMode,

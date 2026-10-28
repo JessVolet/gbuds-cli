@@ -107,6 +107,19 @@ class BatteryStatus:
     noise_control_mode: Optional[NoiseControlMode] = None
     touchpad_locked: Optional[bool] = None
 
+    def to_dict(self) -> dict:
+        return {
+            "left": self.left,
+            "right": self.right,
+            "case": self.case,
+            "left_charging": self.left_charging,
+            "right_charging": self.right_charging,
+            "case_charging": self.case_charging,
+            "is_coupled": self.is_coupled,
+            "noise_control": self.noise_control_mode.name if self.noise_control_mode else None,
+            "touchpad_locked": self.touchpad_locked,
+        }
+
 
 def build_packet(
     msg_id: int,
